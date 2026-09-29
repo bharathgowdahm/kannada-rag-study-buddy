@@ -1,5 +1,7 @@
 import os
 import time
+import base64
+import tempfile
 from pathlib import Path
 
 import streamlit as st
@@ -7,32 +9,15 @@ from google import genai
 
 
 # ============================================================
-# ⚡ ULTRA SONIC SUPER
-# Professional Gemini Study Assistant
-# ============================================================
-
-st.set_page_config(
-    page_title="Ultra Sonic Super",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-
-# ============================================================
 # CONFIG
 # ============================================================
 
-APP_NAME = "⚡ Ultra Sonic Super"
+APP_NAME = "Ultra Sonic Super"
 
 MODEL = "gemini-3.8-flash"
-
 EMBEDDING_MODEL = "models/gemini-embedding-2"
 
-# Low = faster responses.
-# Change to "medium" if you want deeper reasoning.
-THINKING_LEVEL = "low"
-
+MAX_FILE_SIZE_MB = 50
 
 SUPPORTED_FILES = [
     "pdf",
@@ -50,822 +35,11 @@ SUPPORTED_FILES = [
 
 
 # ============================================================
-# 🔐 API KEY
-# ============================================================
-
-try:
-    API_KEY = st.secrets.get(
-        "GOOGLE_API_KEY",
-        os.getenv("GOOGLE_API_KEY"),
-    )
-except Exception as e:
-    st.error("❌ Streamlit Secrets could not be read.")
-    st.code(str(e))
-    st.stop()
-
-
-if not API_KEY:
-    st.error("❌ GOOGLE_API_KEY is missing.")
-
-    st.markdown(
-        """
-        Go to:
-
-        **Streamlit → Manage app → Settings → Secrets**
-
-        Add:
-
-        ```toml
-        GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY"
-        ```
-        """
-    )
-
-    st.stop()
-
-
-# ============================================================
-# 🤖 GEMINI CLIENT
-# ============================================================
-
-@st.cache_resource
-def get_client():
-    return genai.Client(api_key=API_KEY)
-
-
-client = get_client()
-
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-DEFAULT_STATE = {
-    "store_name": None,
-    "interaction_id": None,
-    "messages": [],
-    "indexed_files": [],
-    "file_upload_status": {},
-}
-
-
-for key, value in DEFAULT_STATE.items():
-
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-
-# ============================================================
-# 🎨 PROFESSIONAL UI
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-
-    .block-container {
-        max-width: 1250px;
-        padding-top: 1.2rem;
-        padding-bottom: 4rem;
-    }
-
-    .hero {
-        padding: 28px;
-        border-radius: 26px;
-        margin-bottom: 22px;
-
-        background:
-        linear-gradient(
-            135deg,
-            #111827 0%,
-            #312e81 50%,
-            #0f766e 100%
-        );
-
-        color: white;
-    }
-
-    .hero-title {
-        font-size: 2.4rem;
-        font-weight: 800;
-        margin-top: 12px;
-        margin-bottom: 5px;
-    }
-
-    .hero-subtitle {
-        opacity: .9;
-        font-size: 1rem;
-    }
-
-    .badge {
-        display: inline-block;
-        padding: 6px 12px;
-        border-radius: 999px;
-        background: rgba(255,255,255,.13);
-        margin-right: 5px;
-        margin-bottom: 5px;
-        font-size: .78rem;
-    }
-
-    .status-card {
-        padding: 15px;
-        border-radius: 16px;
-        background: rgba(128,128,128,.08);
-        margin-bottom: 10px;
-    }
-
-    </style>
-
-    <div class="hero">
-
-        <span class="badge">⚡ ULTRA SONIC SUPER</span>
-        <span class="badge">🧠 GEMINI 3.8 FLASH</span>
-        <span class="badge">📚 RAG</span>
-        <span class="badge">📄 FILE SEARCH</span>
-        <span class="badge">🖼️ PHOTO AI</span>
-
-        <div class="hero-title">
-            Ultra Sonic Super
-        </div>
-
-        <div class="hero-subtitle">
-            Fast Kannada + English AI Study Assistant
-            • Documents • RAG • Photos • Smart Search
-        </div>
-
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# 📚 FILE SEARCH STORE
-# ============================================================
-
-def create_store():
-
-    store = client.file_search_stores.create(
-        config={
-            "display_name": "Ultra Sonic Super Study Files",
-            "embedding_model": EMBEDDING_MODEL,
-        }
-    )
-
-    st.session_state.store_name = store.name
-
-    return store.name
-
-
-def get_store():
-
-    if st.session_state.store_name:
-        return st.session_state.store_name
-
-    return create_store()
-
-
-# ============================================================
-# 📥 FILE INDEXING
-# ============================================================
-
-def index_file(uploaded_file):
-
-    store_name = get_store()
-
-    suffix = Path(
-        uploaded_file.name
-    ).suffix.lower()
-
-    temp_name = (
-        "ultra_sonic_"
-        + str(abs(hash(uploaded_file.name)))
-        + suffix
-    )
-
-    temp_path = Path("/tmp") / temp_name
-
-    temp_path.write_bytes(
-        uploaded_file.getvalue()
-    )
-
-    try:
-
-        operation = (
-            client
-            .file_search_stores
-            .upload_to_file_search_store(
-                file=str(temp_path),
-
-                file_search_store_name=store_name,
-
-                config={
-                    "display_name":
-                        uploaded_file.name,
-                },
-            )
-        )
-
-        # File indexing is asynchronous.
-        while not operation.done:
-
-            time.sleep(2)
-
-            operation = (
-                client.operations.get(
-                    operation
-                )
-            )
-
-        if getattr(operation, "error", None):
-
-            raise RuntimeError(
-                str(operation.error)
-            )
-
-        return True
-
-    finally:
-
-        try:
-            temp_path.unlink()
-        except Exception:
-            pass
-
-
-# ============================================================
-# 🧠 GEMINI PROMPT
-# ============================================================
-
-def build_system_prompt():
-
-    return """
-You are Ultra Sonic Super.
-
-You are a professional Kannada + English
-engineering study assistant.
-
-CORE BEHAVIOUR:
-
-• Be accurate.
-• Be concise by default.
-• Do not invent information.
-• Explain difficult concepts simply.
-• Preserve important technical terminology.
-• If the user asks Kannada, naturally answer in Kannada.
-• If the user asks English, answer in English.
-• If mixed language is useful, use Kannada + English.
-
-FOR STUDY QUESTIONS:
-
-1. Give the direct answer first.
-2. Then explain.
-3. Then give important exam points.
-4. Use examples when useful.
-
-FOR UPLOADED FILES:
-
-• Treat uploaded study material as the primary source.
-• Use File Search when available.
-• Do not pretend something came from the file if it did not.
-• If the requested information is not found,
-  clearly say that.
-
-FOR ENGINEERING:
-
-• Prefer structured explanations.
-• Use formulas when necessary.
-• Show calculation steps for numerical problems.
-• For programming questions, give clean code.
-• Explain code briefly after the code.
-
-Keep responses comfortable to read on a mobile phone.
-"""
-
-
-# ============================================================
-# 📚 FILE SEARCH CHAT
-# ============================================================
-
-def ask_files(question):
-
-    store_name = get_store()
-
-    prompt = (
-        build_system_prompt()
-        + "\n\nStudent question:\n"
-        + question
-    )
-
-    kwargs = {
-        "model": MODEL,
-        "input": prompt,
-
-        "generation_config": {
-            "thinking_level": THINKING_LEVEL,
-        },
-
-        "tools": [
-            {
-                "type": "file_search",
-                "file_search_store_names": [
-                    store_name
-                ],
-            }
-        ],
-    }
-
-    # Continue previous conversation when available.
-    if st.session_state.interaction_id:
-
-        kwargs[
-            "previous_interaction_id"
-        ] = st.session_state.interaction_id
-
-    interaction = client.interactions.create(
-        **kwargs
-    )
-
-    st.session_state.interaction_id = (
-        interaction.id
-    )
-
-    return interaction.output_text
-
-
-# ============================================================
-# 💬 NORMAL CHAT
-# ============================================================
-
-def ask_normal_chat(question):
-
-    kwargs = {
-        "model": MODEL,
-
-        "input": (
-            build_system_prompt()
-            + "\n\nStudent question:\n"
-            + question
-        ),
-
-        "generation_config": {
-            "thinking_level": THINKING_LEVEL,
-        },
-    }
-
-    if st.session_state.interaction_id:
-
-        kwargs[
-            "previous_interaction_id"
-        ] = st.session_state.interaction_id
-
-    interaction = client.interactions.create(
-        **kwargs
-    )
-
-    st.session_state.interaction_id = (
-        interaction.id
-    )
-
-    return interaction.output_text
-
-
-# ============================================================
-# 🌐 GOOGLE SEARCH CHAT
-# ============================================================
-
-def ask_web(question):
-
-    kwargs = {
-        "model": MODEL,
-
-        "input": (
-            build_system_prompt()
-            + """
-
-This request requires current information.
-
-Use Google Search and provide a concise,
-accurate answer.
-
-Student question:
-"""
-            + question
-        ),
-
-        "generation_config": {
-            "thinking_level": THINKING_LEVEL,
-        },
-
-        "tools": [
-            {
-                "type": "google_search"
-            }
-        ],
-    }
-
-    if st.session_state.interaction_id:
-
-        kwargs[
-            "previous_interaction_id"
-        ] = st.session_state.interaction_id
-
-    interaction = client.interactions.create(
-        **kwargs
-    )
-
-    st.session_state.interaction_id = (
-        interaction.id
-    )
-
-    return interaction.output_text
-
-
-# ============================================================
-# 🖼️ PHOTO AI
-# ============================================================
-
-def analyze_photo(uploaded_image, question):
-
-    image_bytes = uploaded_image.getvalue()
-
-    import base64
-
-    image_base64 = base64.b64encode(
-        image_bytes
-    ).decode("utf-8")
-
-    mime_type = uploaded_image.type
-
-    prompt = f"""
-You are Ultra Sonic Super Photo AI.
-
-Analyze the uploaded image carefully.
-
-User request:
-
-{question}
-
-Rules:
-
-• Read visible text accurately.
-• Do not invent missing information.
-• If it is a question, solve it.
-• If it is mathematics, show steps.
-• If it is engineering, explain clearly.
-• If it is a diagram, identify important components.
-• If it is handwritten, interpret carefully.
-• Answer in Kannada + English when useful.
-• Give the direct answer first.
-"""
-
-    interaction = client.interactions.create(
-
-        model=MODEL,
-
-        input=[
-            {
-                "type": "text",
-                "text": prompt,
-            },
-
-            {
-                "type": "image",
-                "data": image_base64,
-                "mime_type": mime_type,
-            },
-        ],
-
-        generation_config={
-            "thinking_level": THINKING_LEVEL,
-        },
-    )
-
-    return interaction.output_text
-
-
-# ============================================================
-# 🧹 RESET CHAT
-# ============================================================
-
-def clear_chat():
-
-    st.session_state.messages = []
-
-    st.session_state.interaction_id = None
-
-    st.rerun()
-
-
-# ============================================================
-# 📱 SIDEBAR
-# ============================================================
-
-with st.sidebar:
-
-    st.header("⚡ Ultra Sonic")
-
-    mode = st.radio(
-        "Mode",
-        [
-            "💬 AI Chat",
-            "📚 Study Files",
-            "🖼️ Photo AI",
-            "🌐 Web Search",
-        ],
-    )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # FILE UPLOAD
-    # --------------------------------------------------------
-
-    st.subheader("📚 Study Library")
-
-    uploaded_files = st.file_uploader(
-
-        "Add PDF / documents",
-
-        type=SUPPORTED_FILES,
-
-        accept_multiple_files=True,
-    )
-
-    if uploaded_files:
-
-        if st.button(
-            "⚡ ADD TO STUDY LIBRARY",
-            type="primary",
-            use_container_width=True,
-        ):
-
-            progress = st.progress(0)
-
-            total = len(uploaded_files)
-
-            for index, uploaded_file in enumerate(
-                uploaded_files
-            ):
-
-                filename = uploaded_file.name
-
-                if filename in (
-                    st.session_state.indexed_files
-                ):
-
-                    st.info(
-                        f"⏭️ Already added: {filename}"
-                    )
-
-                else:
-
-                    try:
-
-                        with st.spinner(
-                            f"Indexing {filename}..."
-                        ):
-
-                            index_file(
-                                uploaded_file
-                            )
-
-                        st.session_state.indexed_files.append(
-                            filename
-                        )
-
-                        st.session_state.file_upload_status[
-                            filename
-                        ] = "Ready"
-
-                        st.success(
-                            f"✅ {filename}"
-                        )
-
-                    except Exception as e:
-
-                        st.session_state.file_upload_status[
-                            filename
-                        ] = "Error"
-
-                        st.error(
-                            f"❌ {filename}\n\n{e}"
-                        )
-
-                progress.progress(
-                    (index + 1) / total
-                )
-
-    # --------------------------------------------------------
-    # STATUS
-    # --------------------------------------------------------
-
-    st.divider()
-
-    st.subheader("📊 System Status")
-
-    if st.session_state.store_name:
-
-        st.success(
-            "🟢 File Search ready"
-        )
-
-    else:
-
-        st.info(
-            "⚪ File Search waiting"
-        )
-
-    st.caption(
-        f"📚 Files: "
-        f"{len(st.session_state.indexed_files)}"
-    )
-
-    st.caption(
-        f"🧠 Model: {MODEL}"
-    )
-
-    st.caption(
-        f"⚡ Thinking: {THINKING_LEVEL}"
-    )
-
-    # --------------------------------------------------------
-    # CONTROLS
-    # --------------------------------------------------------
-
-    st.divider()
-
-    if st.button(
-        "🧹 Clear Chat",
-        use_container_width=True,
-    ):
-
-        clear_chat()
-
-
-# ============================================================
-# 💬 AI CHAT
-# ============================================================
-
-if mode == "💬 AI Chat":
-
-    st.subheader(
-        "💬 Ultra Sonic AI"
-    )
-
-    st.caption(
-        "Fast general-purpose Kannada + English AI."
-    )
-
-    for message in st.session_state.messages:
-
-        with st.chat_message(
-            message["role"]
-        ):
-
-            st.markdown(
-                message["content"]
-            )
-
-    question = st.chat_input(
-        "Ask anything..."
-    )
-
-    if question:
-
-        st.session_state.messages.append(
-            {
-                "role": "user",
-                "content": question,
-            }
-        )
-
-        with st.chat_message("user"):
-
-            st.markdown(question)
-
-        with st.chat_message("assistant"):
-
-            with st.spinner(
-                "⚡ Thinking..."
-            ):
-
-                try:
-
-                    answer = ask_normal_chat(
-                        question
-                    )
-
-                    st.markdown(answer)
-
-                    st.session_state.messages.append(
-                        {
-                            "role": "assistant",
-                            "content": answer,
-                        }
-                    )
-
-                except Exception as e:
-
-                    st.error(
-                        f"❌ Gemini error:\n\n{e}"
-                    )
-
-
-# ============================================================
-# 📚 STUDY FILE MODE
-# ============================================================
-
-elif mode == "📚 Study Files":
-
-    st.subheader(
-        "📚 Ask Your Study Material"
-    )
-
-    if not st.session_state.store_name:
-
-        st.info(
-            "👈 Upload your PDF or study files "
-            "from the sidebar first."
-        )
-
-    else:
-
-        st.success(
-            "🟢 Your study library is ready."
-        )
-
-        for message in st.session_state.messages:
-
-            with st.chat_message(
-                message["role"]
-            ):
-
-                st.markdown(
-                    message["content"]
-                )
-
-        question = st.chat_input(
-            "Ask something from your study material..."
-        )
-
-        if question:
-
-            st.session_state.messages.append(
-                {
-                    "role": "user",
-                    "content": question,
-                }
-            )
-
-            with st.chat_message("user"):
-
-                st.markdown(question)
-
-            with st.chat_message("assistant"):
-
-                with st.spinner(
-                    "🔎 Searching your files..."
-                ):
-
-                    try:
-
-                        answer = ask_files(
-                            question
-                        )
-
-                        st.markdown(answer)
-
-                        st.session_state.messages.append(
-                            {
-                                "role": "assistant",
-                                "content": answer,
-                            }
-                        )
-
-                    except Exception as e:
-
-                        st.error(
-                            f"❌ File Search error:\n\n{e}"
-                        )
-
-
-# ============================================================
-import os
-import time
-from pathlib import Path
-
-import streamlit as st
-from google import genai
-
-
-# ============================================================
-# ⚡ ULTRA SONIC SUPER
-# Professional Gemini Study Assistant
+# PAGE
 # ============================================================
 
 st.set_page_config(
-    page_title="Ultra Sonic Super",
+    page_title=APP_NAME,
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -873,728 +47,536 @@ st.set_page_config(
 
 
 # ============================================================
-# CONFIG
+# CSS
 # ============================================================
 
-APP_NAME = "⚡ Ultra Sonic Super"
+st.markdown(
+    """
+<style>
 
-MODEL = "gemini-3.8-flash"
+#MainMenu {
+    visibility: hidden;
+}
 
-EMBEDDING_MODEL = "models/gemini-embedding-2"
+footer {
+    visibility: hidden;
+}
 
-# Low = faster responses.
-# Change to "medium" if you want deeper reasoning.
-THINKING_LEVEL = "low"
+header {
+    visibility: hidden;
+}
 
+.block-container {
+    padding-top: 1rem;
+    padding-bottom: 2rem;
+    max-width: 1200px;
+}
 
-SUPPORTED_FILES = [
-    "pdf",
-    "txt",
-    "md",
-    "csv",
-    "json",
-    "docx",
-    "pptx",
-    "png",
-    "jpg",
-    "jpeg",
-    "webp",
-]
+.hero {
+    padding: 25px;
+    border-radius: 24px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(128,128,128,0.25);
+    background: linear-gradient(
+        135deg,
+        rgba(100,100,255,0.15),
+        rgba(0,200,255,0.08)
+    );
+}
+
+.hero-title {
+    font-size: 38px;
+    font-weight: 800;
+    margin-bottom: 5px;
+}
+
+.hero-subtitle {
+    font-size: 16px;
+    opacity: 0.75;
+}
+
+.status-card {
+    padding: 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(128,128,128,0.2);
+    margin-bottom: 10px;
+}
+
+.feature-card {
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(128,128,128,0.2);
+    min-height: 120px;
+}
+
+.small-text {
+    font-size: 13px;
+    opacity: 0.7;
+}
+
+div[data-testid="stChatMessage"] {
+    border-radius: 16px;
+}
+
+.stButton > button {
+    border-radius: 12px;
+}
+
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 
 # ============================================================
-# 🔐 API KEY
+# API KEY
 # ============================================================
 
-try:
-    API_KEY = st.secrets.get(
-        "GOOGLE_API_KEY",
-        os.getenv("GOOGLE_API_KEY"),
-    )
-except Exception as e:
-    st.error("❌ Streamlit Secrets could not be read.")
-    st.code(str(e))
-    st.stop()
+def get_api_key():
+    try:
+        key = st.secrets.get("GOOGLE_API_KEY")
+    except Exception:
+        key = None
+
+    if not key:
+        key = os.getenv("GOOGLE_API_KEY")
+
+    return key
 
 
-if not API_KEY:
-    st.error("❌ GOOGLE_API_KEY is missing.")
-
-    st.markdown(
-        """
-        Go to:
-
-        **Streamlit → Manage app → Settings → Secrets**
-
-        Add:
-
-        ```toml
-        GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY"
-        ```
-        """
-    )
-
-    st.stop()
+API_KEY = get_api_key()
 
 
 # ============================================================
-# 🤖 GEMINI CLIENT
+# GEMINI CLIENT
 # ============================================================
 
 @st.cache_resource
-def get_client():
-    return genai.Client(api_key=API_KEY)
+def get_client(api_key):
+    return genai.Client(api_key=api_key)
 
 
-client = get_client()
+if not API_KEY:
+    st.error(
+        """
+        ❌ Google API key not found.
+
+        Add this to Streamlit Secrets:
+
+        `GOOGLE_API_KEY = "YOUR_NEW_API_KEY"`
+
+        Then reboot the app.
+        """
+    )
+    st.stop()
+
+
+client = get_client(API_KEY)
 
 
 # ============================================================
 # SESSION STATE
 # ============================================================
 
-DEFAULT_STATE = {
-    "store_name": None,
-    "interaction_id": None,
-    "messages": [],
-    "indexed_files": [],
-    "file_upload_status": {},
-}
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
+if "interaction_id" not in st.session_state:
+    st.session_state.interaction_id = None
 
-for key, value in DEFAULT_STATE.items():
+if "store_name" not in st.session_state:
+    st.session_state.store_name = None
 
-    if key not in st.session_state:
-        st.session_state[key] = value
+if "indexed_files" not in st.session_state:
+    st.session_state.indexed_files = []
 
-
-# ============================================================
-# 🎨 PROFESSIONAL UI
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-
-    .block-container {
-        max-width: 1250px;
-        padding-top: 1.2rem;
-        padding-bottom: 4rem;
-    }
-
-    .hero {
-        padding: 28px;
-        border-radius: 26px;
-        margin-bottom: 22px;
-
-        background:
-        linear-gradient(
-            135deg,
-            #111827 0%,
-            #312e81 50%,
-            #0f766e 100%
-        );
-
-        color: white;
-    }
-
-    .hero-title {
-        font-size: 2.4rem;
-        font-weight: 800;
-        margin-top: 12px;
-        margin-bottom: 5px;
-    }
-
-    .hero-subtitle {
-        opacity: .9;
-        font-size: 1rem;
-    }
-
-    .badge {
-        display: inline-block;
-        padding: 6px 12px;
-        border-radius: 999px;
-        background: rgba(255,255,255,.13);
-        margin-right: 5px;
-        margin-bottom: 5px;
-        font-size: .78rem;
-    }
-
-    .status-card {
-        padding: 15px;
-        border-radius: 16px;
-        background: rgba(128,128,128,.08);
-        margin-bottom: 10px;
-    }
-
-    </style>
-
-    <div class="hero">
-
-        <span class="badge">⚡ ULTRA SONIC SUPER</span>
-        <span class="badge">🧠 GEMINI 3.8 FLASH</span>
-        <span class="badge">📚 RAG</span>
-        <span class="badge">📄 FILE SEARCH</span>
-        <span class="badge">🖼️ PHOTO AI</span>
-
-        <div class="hero-title">
-            Ultra Sonic Super
-        </div>
-
-        <div class="hero-subtitle">
-            Fast Kannada + English AI Study Assistant
-            • Documents • RAG • Photos • Smart Search
-        </div>
-
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+if "file_upload_status" not in st.session_state:
+    st.session_state.file_upload_status = {}
 
 
 # ============================================================
-# 📚 FILE SEARCH STORE
+# HELPERS
+# ============================================================
+
+def clean_output(text):
+    if not text:
+        return "I couldn't generate a response."
+
+    return str(text).strip()
+
+
+def add_message(role, content):
+    st.session_state.messages.append(
+        {
+            "role": role,
+            "content": content,
+        }
+    )
+
+
+def display_chat_history():
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+
+# ============================================================
+# CREATE FILE SEARCH STORE
 # ============================================================
 
 def create_store():
-
     store = client.file_search_stores.create(
         config={
-            "display_name": "Ultra Sonic Super Study Files",
+            "display_name": f"{APP_NAME}-Store",
             "embedding_model": EMBEDDING_MODEL,
         }
     )
 
-    st.session_state.store_name = store.name
-
     return store.name
 
 
-def get_store():
+# ============================================================
+# GET OR CREATE STORE
+# ============================================================
 
+def get_store():
     if st.session_state.store_name:
         return st.session_state.store_name
 
-    return create_store()
+    store_name = create_store()
+
+    st.session_state.store_name = store_name
+
+    return store_name
 
 
 # ============================================================
-# 📥 FILE INDEXING
+# INDEX FILE
 # ============================================================
 
 def index_file(uploaded_file):
 
-    store_name = get_store()
+    file_size_mb = uploaded_file.size / (1024 * 1024)
 
-    suffix = Path(
-        uploaded_file.name
-    ).suffix.lower()
+    if file_size_mb > MAX_FILE_SIZE_MB:
+        raise ValueError(
+            f"File is too large. Maximum size is "
+            f"{MAX_FILE_SIZE_MB} MB."
+        )
 
-    temp_name = (
-        "ultra_sonic_"
-        + str(abs(hash(uploaded_file.name)))
-        + suffix
-    )
+    suffix = Path(uploaded_file.name).suffix
 
-    temp_path = Path("/tmp") / temp_name
-
-    temp_path.write_bytes(
-        uploaded_file.getvalue()
-    )
+    temp_path = None
 
     try:
 
-        operation = (
-            client
-            .file_search_stores
-            .upload_to_file_search_store(
-                file=str(temp_path),
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=suffix,
+        ) as temp_file:
 
-                file_search_store_name=store_name,
-
-                config={
-                    "display_name":
-                        uploaded_file.name,
-                },
+            temp_file.write(
+                uploaded_file.getbuffer()
             )
+
+            temp_path = temp_file.name
+
+        store_name = get_store()
+
+        operation = client.file_search_stores.upload_to_file_search_store(
+            file=temp_path,
+            file_search_store_name=store_name,
+            config={
+                "display_name": uploaded_file.name,
+            },
         )
 
-        # File indexing is asynchronous.
+        progress = st.progress(0)
+
         while not operation.done:
 
             time.sleep(2)
 
-            operation = (
-                client.operations.get(
-                    operation
+            operation = client.operations.get(
+                operation
+            )
+
+            progress.progress(
+                min(
+                    95,
+                    progress._value if hasattr(
+                        progress,
+                        "_value"
+                    )
+                    else 50,
                 )
             )
 
-        if getattr(operation, "error", None):
+        progress.progress(100)
 
-            raise RuntimeError(
-                str(operation.error)
+        if uploaded_file.name not in st.session_state.indexed_files:
+            st.session_state.indexed_files.append(
+                uploaded_file.name
             )
 
         return True
 
     finally:
 
-        try:
-            temp_path.unlink()
-        except Exception:
-            pass
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 # ============================================================
-# 🧠 GEMINI PROMPT
-# ============================================================
-
-def build_system_prompt():
-
-    return """
-You are Ultra Sonic Super.
-
-You are a professional Kannada + English
-engineering study assistant.
-
-CORE BEHAVIOUR:
-
-• Be accurate.
-• Be concise by default.
-• Do not invent information.
-• Explain difficult concepts simply.
-• Preserve important technical terminology.
-• If the user asks Kannada, naturally answer in Kannada.
-• If the user asks English, answer in English.
-• If mixed language is useful, use Kannada + English.
-
-FOR STUDY QUESTIONS:
-
-1. Give the direct answer first.
-2. Then explain.
-3. Then give important exam points.
-4. Use examples when useful.
-
-FOR UPLOADED FILES:
-
-• Treat uploaded study material as the primary source.
-• Use File Search when available.
-• Do not pretend something came from the file if it did not.
-• If the requested information is not found,
-  clearly say that.
-
-FOR ENGINEERING:
-
-• Prefer structured explanations.
-• Use formulas when necessary.
-• Show calculation steps for numerical problems.
-• For programming questions, give clean code.
-• Explain code briefly after the code.
-
-Keep responses comfortable to read on a mobile phone.
-"""
-
-
-# ============================================================
-# 📚 FILE SEARCH CHAT
-# ============================================================
-
-def ask_files(question):
-
-    store_name = get_store()
-
-    prompt = (
-        build_system_prompt()
-        + "\n\nStudent question:\n"
-        + question
-    )
-
-    kwargs = {
-        "model": MODEL,
-        "input": prompt,
-
-        "generation_config": {
-            "thinking_level": THINKING_LEVEL,
-        },
-
-        "tools": [
-            {
-                "type": "file_search",
-                "file_search_store_names": [
-                    store_name
-                ],
-            }
-        ],
-    }
-
-    # Continue previous conversation when available.
-    if st.session_state.interaction_id:
-
-        kwargs[
-            "previous_interaction_id"
-        ] = st.session_state.interaction_id
-
-    interaction = client.interactions.create(
-        **kwargs
-    )
-
-    st.session_state.interaction_id = (
-        interaction.id
-    )
-
-    return interaction.output_text
-
-
-# ============================================================
-# 💬 NORMAL CHAT
+# NORMAL AI CHAT
 # ============================================================
 
 def ask_normal_chat(question):
 
-    kwargs = {
-        "model": MODEL,
-
-        "input": (
-            build_system_prompt()
-            + "\n\nStudent question:\n"
-            + question
-        ),
-
-        "generation_config": {
-            "thinking_level": THINKING_LEVEL,
-        },
-    }
-
-    if st.session_state.interaction_id:
-
-        kwargs[
-            "previous_interaction_id"
-        ] = st.session_state.interaction_id
-
     interaction = client.interactions.create(
-        **kwargs
+        model=MODEL,
+        input=question,
     )
 
-    st.session_state.interaction_id = (
-        interaction.id
-    )
-
-    return interaction.output_text
+    return clean_output(
+        interaction.output_text
+    ), interaction.id
 
 
 # ============================================================
-# 🌐 GOOGLE SEARCH CHAT
+# FILE SEARCH / RAG
+# ============================================================
+
+def ask_files(question):
+
+    if not st.session_state.store_name:
+        raise ValueError(
+            "Please upload a file first."
+        )
+
+    interaction = client.interactions.create(
+        model=MODEL,
+        input=question,
+        tools=[
+            {
+                "type": "file_search",
+                "file_search_store_names": [
+                    st.session_state.store_name
+                ],
+            }
+        ],
+    )
+
+    return clean_output(
+        interaction.output_text
+    ), interaction.id
+
+
+# ============================================================
+# GOOGLE SEARCH
 # ============================================================
 
 def ask_web(question):
 
-    kwargs = {
-        "model": MODEL,
-
-        "input": (
-            build_system_prompt()
-            + """
-
-This request requires current information.
-
-Use Google Search and provide a concise,
-accurate answer.
-
-Student question:
-"""
-            + question
-        ),
-
-        "generation_config": {
-            "thinking_level": THINKING_LEVEL,
-        },
-
-        "tools": [
+    interaction = client.interactions.create(
+        model=MODEL,
+        input=question,
+        tools=[
             {
                 "type": "google_search"
             }
         ],
-    }
-
-    if st.session_state.interaction_id:
-
-        kwargs[
-            "previous_interaction_id"
-        ] = st.session_state.interaction_id
-
-    interaction = client.interactions.create(
-        **kwargs
     )
 
-    st.session_state.interaction_id = (
-        interaction.id
-    )
-
-    return interaction.output_text
+    return clean_output(
+        interaction.output_text
+    ), interaction.id
 
 
 # ============================================================
-# 🖼️ PHOTO AI
+# PHOTO AI
 # ============================================================
 
-def analyze_photo(uploaded_image, question):
-
-    image_bytes = uploaded_image.getvalue()
-
-    import base64
+def analyze_photo(image_bytes, mime_type, question):
 
     image_base64 = base64.b64encode(
         image_bytes
     ).decode("utf-8")
 
-    mime_type = uploaded_image.type
-
-    prompt = f"""
-You are Ultra Sonic Super Photo AI.
-
-Analyze the uploaded image carefully.
-
-User request:
-
-{question}
-
-Rules:
-
-• Read visible text accurately.
-• Do not invent missing information.
-• If it is a question, solve it.
-• If it is mathematics, show steps.
-• If it is engineering, explain clearly.
-• If it is a diagram, identify important components.
-• If it is handwritten, interpret carefully.
-• Answer in Kannada + English when useful.
-• Give the direct answer first.
-"""
-
     interaction = client.interactions.create(
-
         model=MODEL,
-
         input=[
             {
                 "type": "text",
-                "text": prompt,
+                "text": question,
             },
-
             {
                 "type": "image",
                 "data": image_base64,
                 "mime_type": mime_type,
             },
         ],
-
-        generation_config={
-            "thinking_level": THINKING_LEVEL,
-        },
     )
 
-    return interaction.output_text
+    return clean_output(
+        interaction.output_text
+    ), interaction.id
 
 
 # ============================================================
-# 🧹 RESET CHAT
+# HERO
 # ============================================================
 
-def clear_chat():
+st.markdown(
+    f"""
+<div class="hero">
 
-    st.session_state.messages = []
+<div class="hero-title">
+⚡ {APP_NAME}
+</div>
 
-    st.session_state.interaction_id = None
+<div class="hero-subtitle">
+Your fast AI workspace for Chat, Study Files, Photo AI and Web Search.
+</div>
 
-    st.rerun()
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
 
 # ============================================================
-# 📱 SIDEBAR
+# SIDEBAR
 # ============================================================
 
 with st.sidebar:
 
-    st.header("⚡ Ultra Sonic")
+    st.title("⚡ Ultra Sonic")
+
+    st.caption(
+        "Gemini 3.8 Flash AI Workspace"
+    )
+
+    st.divider()
 
     mode = st.radio(
-        "Mode",
+        "Choose a mode",
         [
-            "💬 AI Chat",
+            "🤖 AI Chat",
             "📚 Study Files",
-            "🖼️ Photo AI",
+            "📷 Photo AI",
             "🌐 Web Search",
         ],
     )
 
     st.divider()
 
-    # --------------------------------------------------------
-    # FILE UPLOAD
-    # --------------------------------------------------------
-
-    st.subheader("📚 Study Library")
+    st.subheader("📁 Files")
 
     uploaded_files = st.file_uploader(
-
-        "Add PDF / documents",
-
+        "Upload files for AI study",
         type=SUPPORTED_FILES,
-
         accept_multiple_files=True,
+        help=(
+            "Upload PDFs, documents, images, text files "
+            "and supported study material."
+        ),
     )
 
     if uploaded_files:
 
-        if st.button(
-            "⚡ ADD TO STUDY LIBRARY",
-            type="primary",
-            use_container_width=True,
-        ):
+        for uploaded_file in uploaded_files:
 
-            progress = st.progress(0)
-
-            total = len(uploaded_files)
-
-            for index, uploaded_file in enumerate(
-                uploaded_files
+            if (
+                uploaded_file.name
+                not in st.session_state.indexed_files
             ):
 
-                filename = uploaded_file.name
-
-                if filename in (
-                    st.session_state.indexed_files
+                if st.button(
+                    f"📥 Add {uploaded_file.name}",
+                    key=f"index_{uploaded_file.name}",
+                    use_container_width=True,
                 ):
 
-                    st.info(
-                        f"⏭️ Already added: {filename}"
-                    )
+                    with st.spinner(
+                        f"Indexing {uploaded_file.name}..."
+                    ):
 
-                else:
-
-                    try:
-
-                        with st.spinner(
-                            f"Indexing {filename}..."
-                        ):
+                        try:
 
                             index_file(
                                 uploaded_file
                             )
 
-                        st.session_state.indexed_files.append(
-                            filename
-                        )
+                            st.success(
+                                "File added!"
+                            )
 
-                        st.session_state.file_upload_status[
-                            filename
-                        ] = "Ready"
+                        except Exception as e:
 
-                        st.success(
-                            f"✅ {filename}"
-                        )
+                            st.error(
+                                f"Indexing failed:\n{e}"
+                            )
 
-                    except Exception as e:
+    if st.session_state.indexed_files:
 
-                        st.session_state.file_upload_status[
-                            filename
-                        ] = "Error"
+        st.subheader("✅ Indexed")
 
-                        st.error(
-                            f"❌ {filename}\n\n{e}"
-                        )
+        for filename in st.session_state.indexed_files:
 
-                progress.progress(
-                    (index + 1) / total
-                )
-
-    # --------------------------------------------------------
-    # STATUS
-    # --------------------------------------------------------
-
-    st.divider()
-
-    st.subheader("📊 System Status")
-
-    if st.session_state.store_name:
-
-        st.success(
-            "🟢 File Search ready"
-        )
-
-    else:
-
-        st.info(
-            "⚪ File Search waiting"
-        )
-
-    st.caption(
-        f"📚 Files: "
-        f"{len(st.session_state.indexed_files)}"
-    )
-
-    st.caption(
-        f"🧠 Model: {MODEL}"
-    )
-
-    st.caption(
-        f"⚡ Thinking: {THINKING_LEVEL}"
-    )
-
-    # --------------------------------------------------------
-    # CONTROLS
-    # --------------------------------------------------------
+            st.caption(
+                f"📄 {filename}"
+            )
 
     st.divider()
 
     if st.button(
-        "🧹 Clear Chat",
+        "🗑️ Clear Chat",
         use_container_width=True,
     ):
 
-        clear_chat()
+        st.session_state.messages = []
+        st.session_state.interaction_id = None
 
+        st.rerun()
 
-# ============================================================
-# 💬 AI CHAT
-# ============================================================
+    st.divider()
 
-if mode == "💬 AI Chat":
-
-    st.subheader(
-        "💬 Ultra Sonic AI"
+    st.caption(
+        "Model: Gemini 3.8 Flash"
     )
 
     st.caption(
-        "Fast general-purpose Kannada + English AI."
+        "Built with Google Gemini API"
     )
 
-    for message in st.session_state.messages:
 
-        with st.chat_message(
-            message["role"]
-        ):
+# ============================================================
+# AI CHAT
+# ============================================================
 
-            st.markdown(
-                message["content"]
-            )
+if mode == "🤖 AI Chat":
+
+    st.subheader("🤖 AI Chat")
+
+    st.caption(
+        "Ask anything. Kannada and English are supported."
+    )
+
+    display_chat_history()
 
     question = st.chat_input(
-        "Ask anything..."
+        "Ask Ultra Sonic anything..."
     )
 
     if question:
 
-        st.session_state.messages.append(
-            {
-                "role": "user",
-                "content": question,
-            }
+        add_message(
+            "user",
+            question,
         )
 
         with st.chat_message("user"):
-
             st.markdown(question)
 
         with st.chat_message("assistant"):
@@ -1605,95 +587,99 @@ if mode == "💬 AI Chat":
 
                 try:
 
-                    answer = ask_normal_chat(
-                        question
+                    answer, interaction_id = (
+                        ask_normal_chat(
+                            question
+                        )
                     )
 
                     st.markdown(answer)
 
-                    st.session_state.messages.append(
-                        {
-                            "role": "assistant",
-                            "content": answer,
-                        }
+                    st.session_state.interaction_id = (
+                        interaction_id
+                    )
+
+                    add_message(
+                        "assistant",
+                        answer,
                     )
 
                 except Exception as e:
 
+                    error_message = (
+                        f"❌ AI error:\n\n{e}"
+                    )
+
                     st.error(
-                        f"❌ Gemini error:\n\n{e}"
+                        error_message
+                    )
+
+                    add_message(
+                        "assistant",
+                        error_message,
                     )
 
 
 # ============================================================
-# 📚 STUDY FILE MODE
+# STUDY FILES
 # ============================================================
 
 elif mode == "📚 Study Files":
 
-    st.subheader(
-        "📚 Ask Your Study Material"
-    )
+    st.subheader("📚 Study Files")
 
-    if not st.session_state.store_name:
+    if not st.session_state.indexed_files:
 
         st.info(
-            "👈 Upload your PDF or study files "
-            "from the sidebar first."
+            """
+            📁 Upload a PDF or document from the sidebar.
+
+            Then click **Add** to create your searchable study knowledge base.
+            """
         )
 
     else:
 
         st.success(
-            "🟢 Your study library is ready."
+            f"{len(st.session_state.indexed_files)} "
+            "file(s) ready for study."
         )
 
-        for message in st.session_state.messages:
+        for filename in st.session_state.indexed_files:
 
-            with st.chat_message(
-                message["role"]
-            ):
+            st.caption(
+                f"📄 {filename}"
+            )
 
-                st.markdown(
-                    message["content"]
-                )
+        st.divider()
 
         question = st.chat_input(
-            "Ask something from your study material..."
+            "Ask something about your files..."
         )
 
         if question:
 
-            st.session_state.messages.append(
-                {
-                    "role": "user",
-                    "content": question,
-                }
-            )
-
             with st.chat_message("user"):
-
                 st.markdown(question)
 
             with st.chat_message("assistant"):
 
                 with st.spinner(
-                    "🔎 Searching your files..."
+                    "📚 Searching your files..."
                 ):
 
                     try:
 
-                        answer = ask_files(
-                            question
+                        answer, interaction_id = (
+                            ask_files(
+                                question
+                            )
                         )
 
                         st.markdown(answer)
 
-                        st.session_state.messages.append(
-                            {
-                                "role": "assistant",
-                                "content": answer,
-                            }
+                        st.session_state.interaction_id = (
+                            interaction_id
                         )
 
                     except Exception as e:
@@ -1704,71 +690,77 @@ elif mode == "📚 Study Files":
 
 
 # ============================================================
-# 🖼️ PHOTO AI
+# PHOTO AI
 # ============================================================
 
-elif mode == "🖼️ Photo AI":
+elif mode == "📷 Photo AI":
 
-    st.subheader(
-        "🖼️ Ultra Sonic Photo AI"
+    st.subheader("📷 Photo AI")
+
+    st.caption(
+        "Upload an image and ask Gemini to analyze it."
     )
 
-    image = st.file_uploader(
-
-        "Upload a photo",
-
+    photo = st.file_uploader(
+        "Choose an image",
         type=[
             "png",
             "jpg",
             "jpeg",
             "webp",
         ],
-
-        key="photo_ai",
+        key="photo_upload",
     )
 
-    question = st.text_area(
-
-        "What should I do with this image?",
-
-        value=(
-            "Solve this question and "
-            "explain it step by step."
-        ),
-
-        height=100,
-    )
-
-    if image:
+    if photo:
 
         st.image(
-            image,
-            caption="Uploaded image",
+            photo,
+            caption=photo.name,
             use_container_width=True,
         )
 
+        question = st.text_area(
+            "What should I analyze?",
+            value=(
+                "Analyze this image carefully. "
+                "Describe what you see and explain "
+                "the important details."
+            ),
+            height=120,
+        )
+
         if st.button(
-            "⚡ ANALYZE",
+            "🔍 Analyze Photo",
             type="primary",
             use_container_width=True,
         ):
 
             with st.spinner(
-                "⚡ Analyzing image..."
+                "📷 Analyzing image..."
             ):
 
                 try:
 
-                    answer = analyze_photo(
-                        image,
-                        question,
+                    image_bytes = photo.getvalue()
+
+                    answer, interaction_id = (
+                        analyze_photo(
+                            image_bytes,
+                            photo.type,
+                            question,
+                        )
                     )
+
+                    st.markdown("### 🧠 AI Analysis")
 
                     st.markdown(
-                        "### 🧠 Answer"
+                        answer
                     )
 
-                    st.markdown(answer)
+                    st.session_state.interaction_id = (
+                        interaction_id
+                    )
 
                 except Exception as e:
 
@@ -1778,7 +770,7 @@ elif mode == "🖼️ Photo AI":
 
 
 # ============================================================
-# 🌐 WEB SEARCH
+# WEB SEARCH
 # ============================================================
 
 elif mode == "🌐 Web Search":
@@ -1799,7 +791,6 @@ elif mode == "🌐 Web Search":
     if question:
 
         with st.chat_message("user"):
-
             st.markdown(question)
 
         with st.chat_message("assistant"):
@@ -1808,4 +799,36 @@ elif mode == "🌐 Web Search":
                 "🌐 Searching..."
             ):
 
-     
+                try:
+
+                    answer, interaction_id = (
+                        ask_web(
+                            question
+                        )
+                    )
+
+                    st.markdown(
+                        answer
+                    )
+
+                    st.session_state.interaction_id = (
+                        interaction_id
+                    )
+
+                except Exception as e:
+
+                    st.error(
+                        f"❌ Search error:\n\n{e}"
+                    )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "⚡ Ultra Sonic Super • Gemini 3.8 Flash • "
+    "AI Chat • File Search • Photo AI • Google Search"
+        )

@@ -13,7 +13,7 @@ from google import genai
 # ULTRA SONIC SUPER
 # ============================================================
 
-APP_NAME = "Ultra Sonic Super"
+APP_NAME = "Ultra Super Sonic"
 
 MODEL = "gemini-3.8-flash"
 EMBEDDING_MODEL = "models/gemini-embedding-2"

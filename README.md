@@ -1,1 +1,0 @@
-# kannada-rag-study-buddy

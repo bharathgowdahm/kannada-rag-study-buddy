@@ -1,6 +1,7 @@
 import os
 import time
 import base64
+import hashlib
 import tempfile
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from google import genai
 
 
 # ============================================================
-# CONFIG
+# ULTRA SONIC SUPER
 # ============================================================
 
 APP_NAME = "Ultra Sonic Super"
@@ -21,12 +22,12 @@ MAX_FILE_SIZE_MB = 50
 
 SUPPORTED_FILES = [
     "pdf",
+    "docx",
+    "pptx",
     "txt",
     "md",
     "csv",
     "json",
-    "docx",
-    "pptx",
     "png",
     "jpg",
     "jpeg",
@@ -35,7 +36,7 @@ SUPPORTED_FILES = [
 
 
 # ============================================================
-# PAGE
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -47,7 +48,7 @@ st.set_page_config(
 
 
 # ============================================================
-# CSS
+# CUSTOM CSS
 # ============================================================
 
 st.markdown(
@@ -67,59 +68,61 @@ header {
 }
 
 .block-container {
+    max-width: 1200px;
     padding-top: 1rem;
     padding-bottom: 2rem;
-    max-width: 1200px;
 }
 
 .hero {
-    padding: 25px;
+    padding: 28px;
     border-radius: 24px;
-    margin-bottom: 20px;
+    margin-bottom: 22px;
     border: 1px solid rgba(128,128,128,0.25);
-    background: linear-gradient(
-        135deg,
-        rgba(100,100,255,0.15),
-        rgba(0,200,255,0.08)
-    );
+    background:
+        linear-gradient(
+            135deg,
+            rgba(100,100,255,0.15),
+            rgba(0,200,255,0.08)
+        );
 }
 
 .hero-title {
     font-size: 38px;
     font-weight: 800;
-    margin-bottom: 5px;
+    line-height: 1.1;
 }
 
 .hero-subtitle {
-    font-size: 16px;
-    opacity: 0.75;
+    margin-top: 8px;
+    font-size: 15px;
+    opacity: 0.72;
 }
 
-.status-card {
-    padding: 14px;
-    border-radius: 16px;
-    border: 1px solid rgba(128,128,128,0.2);
-    margin-bottom: 10px;
-}
-
-.feature-card {
+.card {
     padding: 18px;
     border-radius: 18px;
-    border: 1px solid rgba(128,128,128,0.2);
-    min-height: 120px;
+    border: 1px solid rgba(128,128,128,0.22);
+    margin-bottom: 12px;
 }
 
-.small-text {
+.file-card {
+    padding: 14px;
+    border-radius: 15px;
+    border: 1px solid rgba(128,128,128,0.20);
+    margin-bottom: 8px;
+}
+
+.status {
     font-size: 13px;
-    opacity: 0.7;
-}
-
-div[data-testid="stChatMessage"] {
-    border-radius: 16px;
+    opacity: 0.72;
 }
 
 .stButton > button {
     border-radius: 12px;
+}
+
+.stChatInput {
+    border-radius: 16px;
 }
 
 </style>
@@ -133,6 +136,7 @@ div[data-testid="stChatMessage"] {
 # ============================================================
 
 def get_api_key():
+
     try:
         key = st.secrets.get("GOOGLE_API_KEY")
     except Exception:
@@ -147,28 +151,33 @@ def get_api_key():
 API_KEY = get_api_key()
 
 
-# ============================================================
-# GEMINI CLIENT
-# ============================================================
-
-@st.cache_resource
-def get_client(api_key):
-    return genai.Client(api_key=api_key)
-
-
 if not API_KEY:
+
     st.error(
         """
         ❌ Google API key not found.
 
-        Add this to Streamlit Secrets:
+        Add your key to Streamlit Secrets:
 
         `GOOGLE_API_KEY = "YOUR_NEW_API_KEY"`
 
         Then reboot the app.
         """
     )
+
     st.stop()
+
+
+# ============================================================
+# GEMINI CLIENT
+# ============================================================
+
+@st.cache_resource
+def get_client(api_key):
+
+    return genai.Client(
+        api_key=api_key
+    )
 
 
 client = get_client(API_KEY)
@@ -178,56 +187,60 @@ client = get_client(API_KEY)
 # SESSION STATE
 # ============================================================
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+DEFAULT_STATE = {
+    "messages": [],
+    "chat_interaction_id": None,
+    "file_interaction_id": None,
+    "photo_interaction_id": None,
+    "web_interaction_id": None,
+    "file_store_name": None,
+    "processed_files": {},
+    "processing_files": {},
+}
 
-if "interaction_id" not in st.session_state:
-    st.session_state.interaction_id = None
 
-if "store_name" not in st.session_state:
-    st.session_state.store_name = None
+for key, value in DEFAULT_STATE.items():
 
-if "indexed_files" not in st.session_state:
-    st.session_state.indexed_files = []
+    if key not in st.session_state:
 
-if "file_upload_status" not in st.session_state:
-    st.session_state.file_upload_status = {}
+        st.session_state[key] = value
 
 
 # ============================================================
-# HELPERS
+# UTILITY
 # ============================================================
 
-def clean_output(text):
-    if not text:
-        return "I couldn't generate a response."
+def file_hash(uploaded_file):
 
-    return str(text).strip()
+    data = uploaded_file.getvalue()
+
+    return hashlib.sha256(
+        data
+    ).hexdigest()
 
 
-def add_message(role, content):
-    st.session_state.messages.append(
-        {
-            "role": role,
-            "content": content,
-        }
+def safe_filename(name):
+
+    return Path(name).name
+
+
+def format_error(error):
+
+    return (
+        f"❌ **Something went wrong**\n\n"
+        f"`{error}`"
     )
 
 
-def display_chat_history():
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-
 # ============================================================
-# CREATE FILE SEARCH STORE
+# FILE SEARCH STORE
 # ============================================================
 
-def create_store():
+def create_file_store():
+
     store = client.file_search_stores.create(
         config={
-            "display_name": f"{APP_NAME}-Store",
+            "display_name": "ultra-sonic-study-store",
             "embedding_model": EMBEDDING_MODEL,
         }
     )
@@ -235,36 +248,47 @@ def create_store():
     return store.name
 
 
-# ============================================================
-# GET OR CREATE STORE
-# ============================================================
+def get_file_store():
 
-def get_store():
-    if st.session_state.store_name:
-        return st.session_state.store_name
+    if st.session_state.file_store_name:
 
-    store_name = create_store()
+        return st.session_state.file_store_name
 
-    st.session_state.store_name = store_name
+    store_name = create_file_store()
+
+    st.session_state.file_store_name = store_name
 
     return store_name
 
 
 # ============================================================
-# INDEX FILE
+# PROCESS ONE FILE
 # ============================================================
 
-def index_file(uploaded_file):
+def process_file(uploaded_file):
 
-    file_size_mb = uploaded_file.size / (1024 * 1024)
+    filename = safe_filename(
+        uploaded_file.name
+    )
 
-    if file_size_mb > MAX_FILE_SIZE_MB:
+    file_size = uploaded_file.size
+
+    size_mb = file_size / (
+        1024 * 1024
+    )
+
+    if size_mb > MAX_FILE_SIZE_MB:
+
         raise ValueError(
-            f"File is too large. Maximum size is "
+            f"{filename} is larger than "
             f"{MAX_FILE_SIZE_MB} MB."
         )
 
-    suffix = Path(uploaded_file.name).suffix
+    store_name = get_file_store()
+
+    suffix = Path(
+        filename
+    ).suffix
 
     temp_path = None
 
@@ -281,17 +305,16 @@ def index_file(uploaded_file):
 
             temp_path = temp_file.name
 
-        store_name = get_store()
-
-        operation = client.file_search_stores.upload_to_file_search_store(
-            file=temp_path,
-            file_search_store_name=store_name,
-            config={
-                "display_name": uploaded_file.name,
-            },
+        operation = (
+            client.file_search_stores
+            .upload_to_file_search_store(
+                file=temp_path,
+                file_search_store_name=store_name,
+                config={
+                    "display_name": filename
+                },
+            )
         )
-
-        progress = st.progress(0)
 
         while not operation.done:
 
@@ -301,75 +324,266 @@ def index_file(uploaded_file):
                 operation
             )
 
-            progress.progress(
-                min(
-                    95,
-                    progress._value if hasattr(
-                        progress,
-                        "_value"
-                    )
-                    else 50,
-                )
-            )
+        if getattr(
+            operation,
+            "error",
+            None,
+        ):
 
-        progress.progress(100)
-
-        if uploaded_file.name not in st.session_state.indexed_files:
-            st.session_state.indexed_files.append(
-                uploaded_file.name
+            raise RuntimeError(
+                str(operation.error)
             )
 
         return True
 
     finally:
 
-        if temp_path and os.path.exists(temp_path):
+        if (
+            temp_path
+            and os.path.exists(temp_path)
+        ):
+
             os.remove(temp_path)
 
 
 # ============================================================
-# NORMAL AI CHAT
+# PROCESS MULTIPLE FILES
 # ============================================================
 
-def ask_normal_chat(question):
+def process_uploaded_files(
+    uploaded_files
+):
 
-    interaction = client.interactions.create(
-        model=MODEL,
-        input=question,
-    )
+    results = []
 
-    return clean_output(
-        interaction.output_text
-    ), interaction.id
+    if not uploaded_files:
 
+        return results
 
-# ============================================================
-# FILE SEARCH / RAG
-# ============================================================
+    for uploaded_file in uploaded_files:
 
-def ask_files(question):
-
-    if not st.session_state.store_name:
-        raise ValueError(
-            "Please upload a file first."
+        filename = safe_filename(
+            uploaded_file.name
         )
 
-    interaction = client.interactions.create(
-        model=MODEL,
-        input=question,
-        tools=[
+        file_id = file_hash(
+            uploaded_file
+        )
+
+        if file_id in st.session_state.processed_files:
+
+            continue
+
+        try:
+
+            process_file(
+                uploaded_file
+            )
+
+            st.session_state.processed_files[
+                file_id
+            ] = {
+                "name": filename,
+                "size": uploaded_file.size,
+                "status": "ready",
+            }
+
+            results.append(
+                {
+                    "name": filename,
+                    "success": True,
+                }
+            )
+
+        except Exception as error:
+
+            st.session_state.processed_files[
+                file_id
+            ] = {
+                "name": filename,
+                "size": uploaded_file.size,
+                "status": "error",
+                "error": str(error),
+            }
+
+            results.append(
+                {
+                    "name": filename,
+                    "success": False,
+                    "error": str(error),
+                }
+            )
+
+    return results
+
+
+# ============================================================
+# LIST FILE SEARCH DOCUMENTS
+# ============================================================
+
+def get_store_documents():
+
+    store_name = (
+        st.session_state.file_store_name
+    )
+
+    if not store_name:
+
+        return []
+
+    try:
+
+        documents = []
+
+        for document in (
+            client.file_search_stores
+            .documents.list(
+                parent=store_name
+            )
+        ):
+
+            documents.append(
+                document
+            )
+
+        return documents
+
+    except Exception:
+
+        return []
+
+
+# ============================================================
+# DELETE DOCUMENT
+# ============================================================
+
+def delete_document(
+    document_name
+):
+
+    client.file_search_stores.documents.delete(
+        name=document_name,
+        config={
+            "force": True
+        },
+    )
+
+
+# ============================================================
+# DELETE ALL FILES
+# ============================================================
+
+def delete_all_files():
+
+    store_name = (
+        st.session_state.file_store_name
+    )
+
+    if store_name:
+
+        try:
+
+            client.file_search_stores.delete(
+                name=store_name,
+                config={
+                    "force": True
+                },
+            )
+
+        except Exception:
+            pass
+
+    st.session_state.file_store_name = None
+
+    st.session_state.processed_files = {}
+
+    st.session_state.file_interaction_id = None
+
+
+# ============================================================
+# NORMAL CHAT
+# ============================================================
+
+def ask_chat(question):
+
+    kwargs = {
+        "model": MODEL,
+        "input": question,
+    }
+
+    previous = (
+        st.session_state.chat_interaction_id
+    )
+
+    if previous:
+
+        kwargs[
+            "previous_interaction_id"
+        ] = previous
+
+    interaction = (
+        client.interactions.create(
+            **kwargs
+        )
+    )
+
+    st.session_state.chat_interaction_id = (
+        interaction.id
+    )
+
+    return interaction.output_text
+
+
+# ============================================================
+# FILE SEARCH
+# ============================================================
+
+def ask_file(question):
+
+    store_name = (
+        st.session_state.file_store_name
+    )
+
+    if not store_name:
+
+        raise ValueError(
+            "Please upload and process a file first."
+        )
+
+    kwargs = {
+        "model": MODEL,
+        "input": question,
+        "tools": [
             {
                 "type": "file_search",
                 "file_search_store_names": [
-                    st.session_state.store_name
+                    store_name
                 ],
             }
         ],
+    }
+
+    previous = (
+        st.session_state.file_interaction_id
     )
 
-    return clean_output(
-        interaction.output_text
-    ), interaction.id
+    if previous:
+
+        kwargs[
+            "previous_interaction_id"
+        ] = previous
+
+    interaction = (
+        client.interactions.create(
+            **kwargs
+        )
+    )
+
+    st.session_state.file_interaction_id = (
+        interaction.id
+    )
+
+    return interaction.output_text, interaction
 
 
 # ============================================================
@@ -378,49 +592,156 @@ def ask_files(question):
 
 def ask_web(question):
 
-    interaction = client.interactions.create(
-        model=MODEL,
-        input=question,
-        tools=[
+    kwargs = {
+        "model": MODEL,
+        "input": question,
+        "tools": [
             {
                 "type": "google_search"
             }
         ],
+    }
+
+    previous = (
+        st.session_state.web_interaction_id
     )
 
-    return clean_output(
-        interaction.output_text
-    ), interaction.id
+    if previous:
+
+        kwargs[
+            "previous_interaction_id"
+        ] = previous
+
+    interaction = (
+        client.interactions.create(
+            **kwargs
+        )
+    )
+
+    st.session_state.web_interaction_id = (
+        interaction.id
+    )
+
+    return interaction.output_text, interaction
 
 
 # ============================================================
 # PHOTO AI
 # ============================================================
 
-def analyze_photo(image_bytes, mime_type, question):
+def analyze_photo(
+    image_bytes,
+    mime_type,
+    question,
+):
 
-    image_base64 = base64.b64encode(
+    encoded = base64.b64encode(
         image_bytes
     ).decode("utf-8")
 
-    interaction = client.interactions.create(
-        model=MODEL,
-        input=[
+    kwargs = {
+        "model": MODEL,
+        "input": [
             {
                 "type": "text",
                 "text": question,
             },
             {
                 "type": "image",
-                "data": image_base64,
+                "data": encoded,
                 "mime_type": mime_type,
             },
         ],
+    }
+
+    previous = (
+        st.session_state.photo_interaction_id
     )
 
-    return clean_output(
-        interaction.output_text
-    ), interaction.id
+    if previous:
+
+        kwargs[
+            "previous_interaction_id"
+        ] = previous
+
+    interaction = (
+        client.interactions.create(
+            **kwargs
+        )
+    )
+
+    st.session_state.photo_interaction_id = (
+        interaction.id
+    )
+
+    return interaction.output_text
+
+
+# ============================================================
+# FILE CITATIONS
+# ============================================================
+
+def get_file_citations(
+    interaction
+):
+
+    citations = []
+
+    try:
+
+        for step in interaction.steps:
+
+            if step.type != "model_output":
+
+                continue
+
+            for content in step.content:
+
+                annotations = getattr(
+                    content,
+                    "annotations",
+                    None,
+                )
+
+                if not annotations:
+
+                    continue
+
+                for annotation in annotations:
+
+                    if (
+                        getattr(
+                            annotation,
+                            "type",
+                            None,
+                        )
+                        == "file_citation"
+                    ):
+
+                        page = getattr(
+                            annotation,
+                            "page_number",
+                            None,
+                        )
+
+                        title = getattr(
+                            annotation,
+                            "title",
+                            None,
+                        )
+
+                        citations.append(
+                            {
+                                "page": page,
+                                "title": title,
+                            }
+                        )
+
+    except Exception:
+
+        pass
+
+    return citations
 
 
 # ============================================================
@@ -436,7 +757,7 @@ st.markdown(
 </div>
 
 <div class="hero-subtitle">
-Your fast AI workspace for Chat, Study Files, Photo AI and Web Search.
+AI Chat • Study Files • Photo AI • Google Search
 </div>
 
 </div>
@@ -454,13 +775,13 @@ with st.sidebar:
     st.title("⚡ Ultra Sonic")
 
     st.caption(
-        "Gemini 3.8 Flash AI Workspace"
+        "Gemini 3.8 Flash"
     )
 
     st.divider()
 
     mode = st.radio(
-        "Choose a mode",
+        "Choose mode",
         [
             "🤖 AI Chat",
             "📚 Study Files",
@@ -471,83 +792,31 @@ with st.sidebar:
 
     st.divider()
 
-    st.subheader("📁 Files")
-
-    uploaded_files = st.file_uploader(
-        "Upload files for AI study",
-        type=SUPPORTED_FILES,
-        accept_multiple_files=True,
-        help=(
-            "Upload PDFs, documents, images, text files "
-            "and supported study material."
-        ),
-    )
-
-    if uploaded_files:
-
-        for uploaded_file in uploaded_files:
-
-            if (
-                uploaded_file.name
-                not in st.session_state.indexed_files
-            ):
-
-                if st.button(
-                    f"📥 Add {uploaded_file.name}",
-                    key=f"index_{uploaded_file.name}",
-                    use_container_width=True,
-                ):
-
-                    with st.spinner(
-                        f"Indexing {uploaded_file.name}..."
-                    ):
-
-                        try:
-
-                            index_file(
-                                uploaded_file
-                            )
-
-                            st.success(
-                                "File added!"
-                            )
-
-                        except Exception as e:
-
-                            st.error(
-                                f"Indexing failed:\n{e}"
-                            )
-
-    if st.session_state.indexed_files:
-
-        st.subheader("✅ Indexed")
-
-        for filename in st.session_state.indexed_files:
-
-            st.caption(
-                f"📄 {filename}"
-            )
-
-    st.divider()
-
     if st.button(
         "🗑️ Clear Chat",
         use_container_width=True,
     ):
 
         st.session_state.messages = []
-        st.session_state.interaction_id = None
+
+        st.session_state.chat_interaction_id = None
+
+        st.session_state.file_interaction_id = None
+
+        st.session_state.photo_interaction_id = None
+
+        st.session_state.web_interaction_id = None
 
         st.rerun()
 
     st.divider()
 
     st.caption(
-        "Model: Gemini 3.8 Flash"
+        "Fast AI workspace"
     )
 
     st.caption(
-        "Built with Google Gemini API"
+        "Kannada + English supported"
     )
 
 
@@ -557,29 +826,44 @@ with st.sidebar:
 
 if mode == "🤖 AI Chat":
 
-    st.subheader("🤖 AI Chat")
-
-    st.caption(
-        "Ask anything. Kannada and English are supported."
+    st.subheader(
+        "🤖 AI Chat"
     )
 
-    display_chat_history()
+    st.caption(
+        "Ask anything in Kannada or English."
+    )
+
+    for message in st.session_state.messages:
+
+        with st.chat_message(
+            message["role"]
+        ):
+
+            st.markdown(
+                message["content"]
+            )
 
     question = st.chat_input(
-        "Ask Ultra Sonic anything..."
+        "Ask Ultra Sonic..."
     )
 
     if question:
 
-        add_message(
-            "user",
-            question,
+        st.session_state.messages.append(
+            {
+                "role": "user",
+                "content": question,
+            }
         )
 
         with st.chat_message("user"):
+
             st.markdown(question)
 
-        with st.chat_message("assistant"):
+        with st.chat_message(
+            "assistant"
+        ):
 
             with st.spinner(
                 "⚡ Thinking..."
@@ -587,36 +871,25 @@ if mode == "🤖 AI Chat":
 
                 try:
 
-                    answer, interaction_id = (
-                        ask_normal_chat(
-                            question
-                        )
+                    answer = ask_chat(
+                        question
                     )
 
-                    st.markdown(answer)
-
-                    st.session_state.interaction_id = (
-                        interaction_id
+                    st.markdown(
+                        answer
                     )
 
-                    add_message(
-                        "assistant",
-                        answer,
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": answer,
+                        }
                     )
 
-                except Exception as e:
-
-                    error_message = (
-                        f"❌ AI error:\n\n{e}"
-                    )
+                except Exception as error:
 
                     st.error(
-                        error_message
-                    )
-
-                    add_message(
-                        "assistant",
-                        error_message,
+                        format_error(error)
                     )
 
 
@@ -626,209 +899,121 @@ if mode == "🤖 AI Chat":
 
 elif mode == "📚 Study Files":
 
-    st.subheader("📚 Study Files")
+    st.subheader(
+        "📚 Study Files"
+    )
 
-    if not st.session_state.indexed_files:
+    st.caption(
+        "Upload your study material and ask questions from it."
+    )
 
-        st.info(
-            """
-            📁 Upload a PDF or document from the sidebar.
+    # --------------------------------------------------------
+    # UPLOAD
+    # --------------------------------------------------------
 
-            Then click **Add** to create your searchable study knowledge base.
-            """
-        )
+    uploaded_files = st.file_uploader(
+        "📁 Upload your files",
+        type=SUPPORTED_FILES,
+        accept_multiple_files=True,
+        help=(
+            "PDF, DOCX, PPTX, TXT, MD, CSV, JSON, "
+            "PNG, JPG, JPEG and WEBP."
+        ),
+    )
 
-    else:
+    if uploaded_files:
 
-        st.success(
-            f"{len(st.session_state.indexed_files)} "
-            "file(s) ready for study."
-        )
+        new_files = []
 
-        for filename in st.session_state.indexed_files:
+        for uploaded_file in uploaded_files:
 
-            st.caption(
-                f"📄 {filename}"
+            file_id = file_hash(
+                uploaded_file
             )
 
-        st.divider()
-
-        question = st.chat_input(
-            "Ask something about your files..."
-        )
-
-        if question:
-
-            with st.chat_message("user"):
-                st.markdown(question)
-
-            with st.chat_message("assistant"):
-
-                with st.spinner(
-                    "📚 Searching your files..."
-                ):
-
-                    try:
-
-                        answer, interaction_id = (
-                            ask_files(
-                                question
-                            )
-                        )
-
-                        st.markdown(answer)
-
-                        st.session_state.interaction_id = (
-                            interaction_id
-                        )
-
-                    except Exception as e:
-
-                        st.error(
-                            f"❌ File Search error:\n\n{e}"
-                        )
-
-
-# ============================================================
-# PHOTO AI
-# ============================================================
-
-elif mode == "📷 Photo AI":
-
-    st.subheader("📷 Photo AI")
-
-    st.caption(
-        "Upload an image and ask Gemini to analyze it."
-    )
-
-    photo = st.file_uploader(
-        "Choose an image",
-        type=[
-            "png",
-            "jpg",
-            "jpeg",
-            "webp",
-        ],
-        key="photo_upload",
-    )
-
-    if photo:
-
-        st.image(
-            photo,
-            caption=photo.name,
-            use_container_width=True,
-        )
-
-        question = st.text_area(
-            "What should I analyze?",
-            value=(
-                "Analyze this image carefully. "
-                "Describe what you see and explain "
-                "the important details."
-            ),
-            height=120,
-        )
-
-        if st.button(
-            "🔍 Analyze Photo",
-            type="primary",
-            use_container_width=True,
-        ):
-
-            with st.spinner(
-                "📷 Analyzing image..."
+            if (
+                file_id
+                not in st.session_state.processed_files
             ):
+
+                new_files.append(
+                    uploaded_file
+                )
+
+        # ----------------------------------------------------
+        # AUTOMATIC PROCESSING
+        # ----------------------------------------------------
+
+        if new_files:
+
+            st.info(
+                f"⚡ Processing {len(new_files)} "
+                f"new file(s)..."
+            )
+
+            progress = st.progress(0)
+
+            for index, uploaded_file in enumerate(
+                new_files
+            ):
+
+                filename = safe_filename(
+                    uploaded_file.name
+                )
+
+                st.write(
+                    f"📄 **{filename}**"
+                )
 
                 try:
 
-                    image_bytes = photo.getvalue()
+                    with st.spinner(
+                        f"Indexing {filename}..."
+                    ):
 
-                    answer, interaction_id = (
-                        analyze_photo(
-                            image_bytes,
-                            photo.type,
-                            question,
+                        process_file(
+                            uploaded_file
                         )
+
+                    file_id = file_hash(
+                        uploaded_file
                     )
 
-                    st.markdown("### 🧠 AI Analysis")
+                    st.session_state.processed_files[
+                        file_id
+                    ] = {
+                        "name": filename,
+                        "size": uploaded_file.size,
+                        "status": "ready",
+                    }
 
-                    st.markdown(
-                        answer
+                    st.success(
+                        f"✅ {filename} ready"
                     )
 
-                    st.session_state.interaction_id = (
-                        interaction_id
+                except Exception as error:
+
+                    file_id = file_hash(
+                        uploaded_file
                     )
 
-                except Exception as e:
+                    st.session_state.processed_files[
+                        file_id
+                    ] = {
+                        "name": filename,
+                        "size": uploaded_file.size,
+                        "status": "error",
+                        "error": str(error),
+                    }
 
                     st.error(
-                        f"❌ Photo AI error:\n\n{e}"
+                        f"❌ {filename}: {error}"
                     )
 
+                progress.progress(
+                    (index + 1)
+                    / len(new_files)
+                )
 
-# ============================================================
-# WEB SEARCH
-# ============================================================
-
-elif mode == "🌐 Web Search":
-
-    st.subheader(
-        "🌐 Current Information Search"
-    )
-
-    st.caption(
-        "Uses Google Search for information "
-        "that needs current web data."
-    )
-
-    question = st.chat_input(
-        "What do you want to search?"
-    )
-
-    if question:
-
-        with st.chat_message("user"):
-            st.markdown(question)
-
-        with st.chat_message("assistant"):
-
-            with st.spinner(
-                "🌐 Searching..."
-            ):
-
-                try:
-
-                    answer, interaction_id = (
-                        ask_web(
-                            question
-                        )
-                    )
-
-                    st.markdown(
-                        answer
-                    )
-
-                    st.session_state.interaction_id = (
-                        interaction_id
-                    )
-
-                except Exception as e:
-
-                    st.error(
-                        f"❌ Search error:\n\n{e}"
-                    )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.divider()
-
-st.caption(
-    "⚡ Ultra Sonic Super • Gemini 3.8 Flash • "
-    "AI Chat • File Search • Photo AI • Google Search"
-        )
+    # --------------------------------------------------------
+    # 

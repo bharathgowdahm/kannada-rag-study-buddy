@@ -1,1 +1,3 @@
-[STRIPPED 86 bytes]
+streamlit
+google-generativeai
+PyPDF2

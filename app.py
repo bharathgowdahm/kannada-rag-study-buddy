@@ -1,65 +1,38 @@
-# ============================================================
-# ⚡ ULTRA SUPER SONIC — v3.0
-# ============================================================
-
 import os
-import io
 import time
-import json
 import base64
 import hashlib
 import tempfile
 from pathlib import Path
-from datetime import datetime
 
 import streamlit as st
 from google import genai
 
 
 # ============================================================
-# CONFIG
+# ULTRA SONIC SUPER
 # ============================================================
 
-APP_NAME = "Ultra Super Sonic"
-APP_VERSION = "3.0"
+APP_NAME = "Ultra Sonic Super"
+
 MODEL = "gemini-3.8-flash"
 EMBEDDING_MODEL = "models/gemini-embedding-2"
 
 MAX_FILE_SIZE_MB = 50
-MAX_IMAGE_SIZE_MB = 10
-MAX_IMAGES_PER_MESSAGE = 5
 
 SUPPORTED_FILES = [
-    "pdf", "docx", "pptx", "txt", "md",
-    "csv", "json", "png", "jpg", "jpeg", "webp",
+    "pdf",
+    "docx",
+    "pptx",
+    "txt",
+    "md",
+    "csv",
+    "json",
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
 ]
-IMAGE_TYPES = ["png", "jpg", "jpeg", "webp", "gif"]
-
-MIME_MAP = {
-    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-    "webp": "image/webp", "gif": "image/gif",
-    "pdf": "application/pdf",
-}
-
-# ---- Sonic themes ----
-THEMES = {
-    "💚 Green Hill": {
-        "accent": "#00d97e", "glow": "#7dffb0",
-        "grad1": "rgba(0,217,126,0.18)", "grad2": "rgba(0,255,180,0.06)",
-    },
-    "💙 Chemical Plant": {
-        "accent": "#00a8ff", "glow": "#7dd3ff",
-        "grad1": "rgba(0,168,255,0.18)", "grad2": "rgba(120,0,255,0.08)",
-    },
-    "💛 Star Light": {
-        "accent": "#ffcc00", "glow": "#ffe680",
-        "grad1": "rgba(255,204,0,0.20)", "grad2": "rgba(255,100,0,0.06)",
-    },
-    "❤️ Death Egg": {
-        "accent": "#ff3355", "glow": "#ff8095",
-        "grad1": "rgba(255,51,85,0.20)", "grad2": "rgba(60,0,20,0.10)",
-    },
-}
 
 
 # ============================================================
@@ -75,6 +48,142 @@ st.set_page_config(
 
 
 # ============================================================
+# CUSTOM CSS
+# ============================================================
+
+st.markdown(
+    """
+<style>
+
+#MainMenu {
+    visibility: hidden;
+}
+
+footer {
+    visibility: hidden;
+}
+
+header {
+    visibility: hidden;
+}
+
+.block-container {
+    max-width: 1200px;
+    padding-top: 1rem;
+    padding-bottom: 2rem;
+}
+
+.hero {
+    padding: 28px;
+    border-radius: 24px;
+    margin-bottom: 22px;
+    border: 1px solid rgba(128,128,128,0.25);
+    background:
+        linear-gradient(
+            135deg,
+            rgba(100,100,255,0.15),
+            rgba(0,200,255,0.08)
+        );
+}
+
+.hero-title {
+    font-size: 38px;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.hero-subtitle {
+    margin-top: 8px;
+    font-size: 15px;
+    opacity: 0.72;
+}
+
+.card {
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(128,128,128,0.22);
+    margin-bottom: 12px;
+}
+
+.file-card {
+    padding: 14px;
+    border-radius: 15px;
+    border: 1px solid rgba(128,128,128,0.20);
+    margin-bottom: 8px;
+}
+
+.status {
+    font-size: 13px;
+    opacity: 0.72;
+}
+
+.stButton > button {
+    border-radius: 12px;
+}
+
+.stChatInput {
+    border-radius: 16px;
+}
+
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# API KEY
+# ============================================================
+
+def get_api_key():
+
+    try:
+        key = st.secrets.get("GOOGLE_API_KEY")
+    except Exception:
+        key = None
+
+    if not key:
+        key = os.getenv("GOOGLE_API_KEY")
+
+    return key
+
+
+API_KEY = get_api_key()
+
+
+if not API_KEY:
+
+    st.error(
+        """
+        ❌ Google API key not found.
+
+        Add your key to Streamlit Secrets:
+
+        `GOOGLE_API_KEY = "YOUR_NEW_API_KEY"`
+
+        Then reboot the app.
+        """
+    )
+
+    st.stop()
+
+
+# ============================================================
+# GEMINI CLIENT
+# ============================================================
+
+@st.cache_resource
+def get_client(api_key):
+
+    return genai.Client(
+        api_key=api_key
+    )
+
+
+client = get_client(API_KEY)
+
+
+# ============================================================
 # SESSION STATE
 # ============================================================
 
@@ -86,228 +195,41 @@ DEFAULT_STATE = {
     "web_interaction_id": None,
     "file_store_name": None,
     "processed_files": {},
-    "photo_history": [],
-    "web_history": [],
-    "theme": "💙 Chemical Plant",
-    "speed": "Super",
-    "rings": 0,
-    "tokens": 0,
-    "session_start": datetime.now().isoformat(),
+    "processing_files": {},
 }
 
-for k, v in DEFAULT_STATE.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+
+for key, value in DEFAULT_STATE.items():
+
+    if key not in st.session_state:
+
+        st.session_state[key] = value
 
 
 # ============================================================
-# DYNAMIC THEME CSS
-# ============================================================
-
-def render_css():
-    t = THEMES[st.session_state.theme]
-    st.markdown(
-        f"""
-<style>
-#MainMenu, footer, header {{ visibility: hidden; }}
-
-.block-container {{
-    max-width: 1250px;
-    padding-top: 1rem;
-    padding-bottom: 2rem;
-}}
-
-/* ---- Hero ---- */
-.hero {{
-    padding: 32px;
-    border-radius: 28px;
-    margin-bottom: 22px;
-    border: 1px solid {t['accent']}44;
-    background: linear-gradient(135deg, {t['grad1']}, {t['grad2']});
-    position: relative;
-    overflow: hidden;
-}}
-.hero::before {{
-    content: "";
-    position: absolute;
-    top: -50%; right: -20%;
-    width: 400px; height: 400px;
-    background: radial-gradient(circle, {t['glow']}55, transparent 70%);
-    animation: pulse 4s ease-in-out infinite;
-}}
-@keyframes pulse {{
-    0%,100% {{ transform: scale(1); opacity: .6; }}
-    50%     {{ transform: scale(1.15); opacity: .3; }}
-}}
-.hero-title {{
-    font-size: 42px; font-weight: 900; line-height: 1.05;
-    letter-spacing: -0.5px;
-    background: linear-gradient(90deg, {t['accent']}, {t['glow']});
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    position: relative; z-index: 1;
-}}
-.hero-subtitle {{
-    margin-top: 10px; font-size: 15px; opacity: 0.75;
-    position: relative; z-index: 1;
-}}
-.hero-rings {{
-    position: absolute; top: 20px; right: 30px;
-    font-size: 26px; letter-spacing: 4px; opacity: .35;
-    animation: spin 8s linear infinite;
-}}
-@keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-
-/* ---- HUD ---- */
-.hud {{
-    display: flex; gap: 12px; flex-wrap: wrap;
-    margin-bottom: 16px;
-}}
-.hud-card {{
-    flex: 1; min-width: 130px;
-    padding: 12px 16px;
-    border-radius: 14px;
-    border: 1px solid {t['accent']}33;
-    background: {t['grad2']};
-}}
-.hud-label {{
-    font-size: 11px; text-transform: uppercase;
-    letter-spacing: 1px; opacity: .6;
-}}
-.hud-value {{
-    font-size: 22px; font-weight: 800;
-    color: {t['accent']};
-    margin-top: 2px;
-}}
-
-/* ---- Cards ---- */
-.card {{
-    padding: 18px; border-radius: 18px;
-    border: 1px solid {t['accent']}33;
-    margin-bottom: 12px; background: {t['grad2']};
-}}
-.file-card {{
-    padding: 14px; border-radius: 15px;
-    border: 1px solid {t['accent']}22;
-    margin-bottom: 8px;
-}}
-
-/* ---- Badges ---- */
-.badge {{
-    display: inline-block; padding: 3px 10px;
-    border-radius: 20px; font-size: 11px;
-    font-weight: 700; letter-spacing: .5px;
-}}
-.badge-ready {{ background: {t['accent']}25; color: {t['accent']}; }}
-.badge-error {{ background: #ff335530; color: #ff5570; }}
-.badge-scan  {{ background: #ffcc0030; color: #ffcc00; }}
-
-.attachment-pill {{
-    display: inline-block; padding: 4px 10px;
-    margin: 2px 4px 2px 0; border-radius: 12px;
-    background: {t['accent']}22; font-size: 12px;
-}}
-
-.stButton > button {{
-    border-radius: 12px;
-    transition: transform .12s ease;
-}}
-.stButton > button:hover {{
-    transform: translateY(-1px);
-    border-color: {t['accent']};
-}}
-.stChatInput {{ border-radius: 16px; }}
-.msg-meta {{ font-size: 11px; opacity: .55; margin-top: 6px; }}
-
-.speed-pill {{
-    display: inline-block; padding: 5px 14px;
-    border-radius: 20px; font-weight: 800;
-    font-size: 12px; letter-spacing: 1px;
-    background: {t['accent']}22;
-    color: {t['accent']};
-    border: 1px solid {t['accent']}55;
-}}
-</style>
-""",
-        unsafe_allow_html=True,
-    )
-
-
-# ============================================================
-# API KEY
-# ============================================================
-
-def get_api_key():
-    try:
-        key = st.secrets.get("GOOGLE_API_KEY")
-    except Exception:
-        key = None
-    if not key:
-        key = os.getenv("GOOGLE_API_KEY")
-    return key
-
-
-API_KEY = get_api_key()
-if not API_KEY:
-    st.error(
-        """
-        ❌ Google API key not found.
-        Add `GOOGLE_API_KEY = "YOUR_API_KEY"` to Streamlit Secrets.
-        """
-    )
-    st.stop()
-
-
-# ============================================================
-# GEMINI CLIENT
-# ============================================================
-
-@st.cache_resource
-def get_client(api_key):
-    return genai.Client(api_key=api_key)
-
-
-client = get_client(API_KEY)
-
-
-# ============================================================
-# UTILITIES
+# UTILITY
 # ============================================================
 
 def file_hash(uploaded_file):
-    return hashlib.sha256(uploaded_file.getvalue()).hexdigest()
+
+    data = uploaded_file.getvalue()
+
+    return hashlib.sha256(
+        data
+    ).hexdigest()
 
 
 def safe_filename(name):
+
     return Path(name).name
 
 
-def human_size(n):
-    for u in ["B", "KB", "MB", "GB"]:
-        if n < 1024:
-            return f"{n:.1f} {u}"
-        n /= 1024
-    return f"{n:.1f} TB"
+def format_error(error):
 
-
-def format_error(e):
-    return f"❌ **Something went wrong**\n\n`{e}`"
-
-
-def guess_mime(name):
-    return MIME_MAP.get(Path(name).suffix.lower().lstrip("."), "application/octet-stream")
-
-
-def is_image(name):
-    return Path(name).suffix.lower().lstrip(".") in IMAGE_TYPES
-
-
-def bump_rings(n=1):
-    st.session_state.rings += n
-
-
-def bump_tokens(text: str):
-    # rough estimate
-    st.session_state.tokens += len(text) // 4
+    return (
+        f"❌ **Something went wrong**\n\n"
+        f"`{error}`"
+    )
 
 
 # ============================================================
@@ -315,264 +237,529 @@ def bump_tokens(text: str):
 # ============================================================
 
 def create_file_store():
+
     store = client.file_search_stores.create(
         config={
-            "display_name": "super-sonic-vault",
+            "display_name": "ultra-sonic-study-store",
             "embedding_model": EMBEDDING_MODEL,
         }
     )
+
     return store.name
 
 
 def get_file_store():
+
     if st.session_state.file_store_name:
+
         return st.session_state.file_store_name
-    st.session_state.file_store_name = create_file_store()
-    return st.session_state.file_store_name
+
+    store_name = create_file_store()
+
+    st.session_state.file_store_name = store_name
+
+    return store_name
 
 
-def process_file(uploaded_file) -> str:
-    name = safe_filename(uploaded_file.name)
-    if uploaded_file.size / (1024 * 1024) > MAX_FILE_SIZE_MB:
-        raise ValueError(f"{name} exceeds {MAX_FILE_SIZE_MB} MB.")
+# ============================================================
+# PROCESS ONE FILE
+# ============================================================
 
-    store = get_file_store()
-    suffix = Path(name).suffix
-    tmp = None
+def process_file(uploaded_file):
+
+    filename = safe_filename(
+        uploaded_file.name
+    )
+
+    file_size = uploaded_file.size
+
+    size_mb = file_size / (
+        1024 * 1024
+    )
+
+    if size_mb > MAX_FILE_SIZE_MB:
+
+        raise ValueError(
+            f"{filename} is larger than "
+            f"{MAX_FILE_SIZE_MB} MB."
+        )
+
+    store_name = get_file_store()
+
+    suffix = Path(
+        filename
+    ).suffix
+
+    temp_path = None
 
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
-            f.write(uploaded_file.getbuffer())
-            tmp = f.name
 
-        op = client.file_search_stores.upload_to_file_search_store(
-            file=tmp,
-            file_search_store_name=store,
-            config={"display_name": name},
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=suffix,
+        ) as temp_file:
+
+            temp_file.write(
+                uploaded_file.getbuffer()
+            )
+
+            temp_path = temp_file.name
+
+        operation = (
+            client.file_search_stores
+            .upload_to_file_search_store(
+                file=temp_path,
+                file_search_store_name=store_name,
+                config={
+                    "display_name": filename
+                },
+            )
         )
-        while not op.done:
+
+        while not operation.done:
+
             time.sleep(2)
-            op = client.operations.get(op)
 
-        if getattr(op, "error", None):
-            raise RuntimeError(str(op.error))
+            operation = client.operations.get(
+                operation
+            )
 
-        doc_name = ""
-        try:
-            meta = getattr(op, "metadata", None)
-            if meta and getattr(meta, "document", None):
-                doc_name = getattr(meta.document, "name", "")
-        except Exception:
-            pass
-        return doc_name
+        if getattr(
+            operation,
+            "error",
+            None,
+        ):
+
+            raise RuntimeError(
+                str(operation.error)
+            )
+
+        return True
 
     finally:
-        if tmp and os.path.exists(tmp):
-            os.remove(tmp)
+
+        if (
+            temp_path
+            and os.path.exists(temp_path)
+        ):
+
+            os.remove(temp_path)
 
 
-def delete_document(doc_name):
+# ============================================================
+# PROCESS MULTIPLE FILES
+# ============================================================
+
+def process_uploaded_files(
+    uploaded_files
+):
+
+    results = []
+
+    if not uploaded_files:
+
+        return results
+
+    for uploaded_file in uploaded_files:
+
+        filename = safe_filename(
+            uploaded_file.name
+        )
+
+        file_id = file_hash(
+            uploaded_file
+        )
+
+        if file_id in st.session_state.processed_files:
+
+            continue
+
+        try:
+
+            process_file(
+                uploaded_file
+            )
+
+            st.session_state.processed_files[
+                file_id
+            ] = {
+                "name": filename,
+                "size": uploaded_file.size,
+                "status": "ready",
+            }
+
+            results.append(
+                {
+                    "name": filename,
+                    "success": True,
+                }
+            )
+
+        except Exception as error:
+
+            st.session_state.processed_files[
+                file_id
+            ] = {
+                "name": filename,
+                "size": uploaded_file.size,
+                "status": "error",
+                "error": str(error),
+            }
+
+            results.append(
+                {
+                    "name": filename,
+                    "success": False,
+                    "error": str(error),
+                }
+            )
+
+    return results
+
+
+# ============================================================
+# LIST FILE SEARCH DOCUMENTS
+# ============================================================
+
+def get_store_documents():
+
+    store_name = (
+        st.session_state.file_store_name
+    )
+
+    if not store_name:
+
+        return []
+
+    try:
+
+        documents = []
+
+        for document in (
+            client.file_search_stores
+            .documents.list(
+                parent=store_name
+            )
+        ):
+
+            documents.append(
+                document
+            )
+
+        return documents
+
+    except Exception:
+
+        return []
+
+
+# ============================================================
+# DELETE DOCUMENT
+# ============================================================
+
+def delete_document(
+    document_name
+):
+
     client.file_search_stores.documents.delete(
-        name=doc_name, config={"force": True}
+        name=document_name,
+        config={
+            "force": True
+        },
     )
 
 
+# ============================================================
+# DELETE ALL FILES
+# ============================================================
+
 def delete_all_files():
-    store = st.session_state.file_store_name
-    if store:
+
+    store_name = (
+        st.session_state.file_store_name
+    )
+
+    if store_name:
+
         try:
+
             client.file_search_stores.delete(
-                name=store, config={"force": True}
+                name=store_name,
+                config={
+                    "force": True
+                },
             )
+
         except Exception:
             pass
+
     st.session_state.file_store_name = None
+
     st.session_state.processed_files = {}
+
     st.session_state.file_interaction_id = None
 
 
-def delete_single_file(fid):
-    data = st.session_state.processed_files.get(fid)
-    if data and data.get("document_name"):
-        try:
-            delete_document(data["document_name"])
-        except Exception:
-            pass
-    st.session_state.processed_files.pop(fid, None)
+# ============================================================
+# NORMAL CHAT
+# ============================================================
+
+def ask_chat(question):
+
+    kwargs = {
+        "model": MODEL,
+        "input": question,
+    }
+
+    previous = (
+        st.session_state.chat_interaction_id
+    )
+
+    if previous:
+
+        kwargs[
+            "previous_interaction_id"
+        ] = previous
+
+    interaction = (
+        client.interactions.create(
+            **kwargs
+        )
+    )
+
+    st.session_state.chat_interaction_id = (
+        interaction.id
+    )
+
+    return interaction.output_text
 
 
 # ============================================================
-# GEMINI CALLS
+# FILE SEARCH
 # ============================================================
-
-def build_multimodal_input(question, attachments):
-    parts = []
-    if question:
-        parts.append({"type": "text", "text": question})
-    for a in attachments:
-        parts.append({
-            "type": "image",
-            "data": base64.b64encode(a["bytes"]).decode("utf-8"),
-            "mime_type": a["mime"],
-        })
-    return parts if parts else question
-
-
-def ask_chat(question, attachments=None):
-    attachments = attachments or []
-    payload = build_multimodal_input(question, attachments)
-
-    kwargs = {"model": MODEL, "input": payload}
-    if st.session_state.chat_interaction_id:
-        kwargs["previous_interaction_id"] = st.session_state.chat_interaction_id
-
-    interaction = client.interactions.create(**kwargs)
-    st.session_state.chat_interaction_id = interaction.id
-    answer = interaction.output_text
-    bump_tokens(answer)
-    return answer
-
 
 def ask_file(question):
-    store = st.session_state.file_store_name
-    if not store:
-        raise ValueError("Upload and process a file first.")
+
+    store_name = (
+        st.session_state.file_store_name
+    )
+
+    if not store_name:
+
+        raise ValueError(
+            "Please upload and process a file first."
+        )
 
     kwargs = {
         "model": MODEL,
         "input": question,
-        "tools": [{
-            "type": "file_search",
-            "file_search_store_names": [store],
-        }],
+        "tools": [
+            {
+                "type": "file_search",
+                "file_search_store_names": [
+                    store_name
+                ],
+            }
+        ],
     }
-    if st.session_state.file_interaction_id:
-        kwargs["previous_interaction_id"] = st.session_state.file_interaction_id
 
-    interaction = client.interactions.create(**kwargs)
-    st.session_state.file_interaction_id = interaction.id
-    answer = interaction.output_text
-    bump_tokens(answer)
-    return answer, interaction
+    previous = (
+        st.session_state.file_interaction_id
+    )
 
+    if previous:
+
+        kwargs[
+            "previous_interaction_id"
+        ] = previous
+
+    interaction = (
+        client.interactions.create(
+            **kwargs
+        )
+    )
+
+    st.session_state.file_interaction_id = (
+        interaction.id
+    )
+
+    return interaction.output_text, interaction
+
+
+# ============================================================
+# GOOGLE SEARCH
+# ============================================================
 
 def ask_web(question):
+
     kwargs = {
         "model": MODEL,
         "input": question,
-        "tools": [{"type": "google_search"}],
+        "tools": [
+            {
+                "type": "google_search"
+            }
+        ],
     }
-    if st.session_state.web_interaction_id:
-        kwargs["previous_interaction_id"] = st.session_state.web_interaction_id
 
-    interaction = client.interactions.create(**kwargs)
-    st.session_state.web_interaction_id = interaction.id
-    answer = interaction.output_text
-    bump_tokens(answer)
-    return answer, interaction
+    previous = (
+        st.session_state.web_interaction_id
+    )
 
+    if previous:
 
-def analyze_photos(images, question):
-    parts = [{"type": "text", "text": question}]
-    for img in images:
-        parts.append({
-            "type": "image",
-            "data": base64.b64encode(img["bytes"]).decode("utf-8"),
-            "mime_type": img["mime"],
-        })
+        kwargs[
+            "previous_interaction_id"
+        ] = previous
 
-    kwargs = {"model": MODEL, "input": parts}
-    if st.session_state.photo_interaction_id:
-        kwargs["previous_interaction_id"] = st.session_state.photo_interaction_id
+    interaction = (
+        client.interactions.create(
+            **kwargs
+        )
+    )
 
-    interaction = client.interactions.create(**kwargs)
-    st.session_state.photo_interaction_id = interaction.id
-    answer = interaction.output_text
-    bump_tokens(answer)
-    return answer
+    st.session_state.web_interaction_id = (
+        interaction.id
+    )
+
+    return interaction.output_text, interaction
 
 
 # ============================================================
-# CITATIONS
+# PHOTO AI
 # ============================================================
 
-def get_file_citations(interaction):
-    out = []
+def analyze_photo(
+    image_bytes,
+    mime_type,
+    question,
+):
+
+    encoded = base64.b64encode(
+        image_bytes
+    ).decode("utf-8")
+
+    kwargs = {
+        "model": MODEL,
+        "input": [
+            {
+                "type": "text",
+                "text": question,
+            },
+            {
+                "type": "image",
+                "data": encoded,
+                "mime_type": mime_type,
+            },
+        ],
+    }
+
+    previous = (
+        st.session_state.photo_interaction_id
+    )
+
+    if previous:
+
+        kwargs[
+            "previous_interaction_id"
+        ] = previous
+
+    interaction = (
+        client.interactions.create(
+            **kwargs
+        )
+    )
+
+    st.session_state.photo_interaction_id = (
+        interaction.id
+    )
+
+    return interaction.output_text
+
+
+# ============================================================
+# FILE CITATIONS
+# ============================================================
+
+def get_file_citations(
+    interaction
+):
+
+    citations = []
+
     try:
+
         for step in interaction.steps:
+
             if step.type != "model_output":
+
                 continue
+
             for content in step.content:
-                anns = getattr(content, "annotations", None) or []
-                for a in anns:
-                    if getattr(a, "type", None) == "file_citation":
-                        out.append({
-                            "page": getattr(a, "page_number", None),
-                            "title": getattr(a, "title", None),
-                        })
+
+                annotations = getattr(
+                    content,
+                    "annotations",
+                    None,
+                )
+
+                if not annotations:
+
+                    continue
+
+                for annotation in annotations:
+
+                    if (
+                        getattr(
+                            annotation,
+                            "type",
+                            None,
+                        )
+                        == "file_citation"
+                    ):
+
+                        page = getattr(
+                            annotation,
+                            "page_number",
+                            None,
+                        )
+
+                        title = getattr(
+                            annotation,
+                            "title",
+                            None,
+                        )
+
+                        citations.append(
+                            {
+                                "page": page,
+                                "title": title,
+                            }
+                        )
+
     except Exception:
+
         pass
-    return out
 
-
-def get_web_citations(interaction):
-    out = []
-    try:
-        for step in interaction.steps:
-            if step.type != "model_output":
-                continue
-            for content in step.content:
-                anns = getattr(content, "annotations", None) or []
-                for a in anns:
-                    if getattr(a, "type", None) == "url_citation":
-                        out.append({
-                            "title": getattr(a, "title", None) or "Source",
-                            "url": getattr(a, "url", None),
-                        })
-    except Exception:
-        pass
-    return out
+    return citations
 
 
 # ============================================================
-# EXPORT
+# HERO
 # ============================================================
-
-def export_messages_markdown():
-    lines = [
-        f"# {APP_NAME} — Chat Export",
-        f"_Exported: {datetime.now():%Y-%m-%d %H:%M}_",
-        "",
-        "---",
-        "",
-    ]
-    for m in st.session_state.messages:
-        role = "🧑 **You**" if m["role"] == "user" else "⚡ **Sonic**"
-        lines.append(f"### {role}")
-        lines.append("")
-        lines.append(m["content"])
-        lines.append("")
-        if m.get("attachments"):
-            atts = ", ".join(a["name"] for a in m["attachments"])
-            lines.append(f"*Attachments: {atts}*")
-            lines.append("")
-    return "\n".join(lines)
-
-
-# ============================================================
-# RENDER CSS + HERO
-# ============================================================
-
-render_css()
 
 st.markdown(
     f"""
 <div class="hero">
-  <div class="hero-rings">💍 💍 💍</div>
-  <div class="hero-title">⚡ {APP_NAME}</div>
-  <div class="hero-subtitle">
-    Gotta go fast — AI Chat • Files • Photos • Web • Voice
-  </div>
+
+<div class="hero-title">
+⚡ {APP_NAME}
+</div>
+
+<div class="hero-subtitle">
+AI Chat • Study Files • Photo AI • Google Search
+</div>
+
 </div>
 """,
     unsafe_allow_html=True,
@@ -584,144 +771,586 @@ st.markdown(
 # ============================================================
 
 with st.sidebar:
-    st.title("⚡ Sonic Control")
-    st.caption(f"Gemini 3.8 Flash · v{APP_VERSION}")
-    st.divider()
 
-    # ---- Speed ----
-    st.markdown("**🏃 Speed**")
-    st.session_state.speed = st.radio(
-        "Speed",
-        ["Sonic", "Super", "Hyper"],
-        index=["Sonic", "Super", "Hyper"].index(st.session_state.speed),
-        label_visibility="collapsed",
-        horizontal=True,
-    )
-    st.markdown(
-        f'<div class="speed-pill">⚡ {st.session_state.speed.upper()} MODE</div>',
-        unsafe_allow_html=True,
+    st.title("⚡ Ultra Sonic")
+
+    st.caption(
+        "Gemini 3.8 Flash"
     )
 
     st.divider()
 
-    # ---- Theme ----
-    st.markdown("**🎨 Zone**")
-    st.session_state.theme = st.selectbox(
-        "Theme",
-        list(THEMES.keys()),
-        index=list(THEMES.keys()).index(st.session_state.theme),
-        label_visibility="collapsed",
-    )
-
-    st.divider()
-
-    # ---- Mode ----
-    st.markdown("**🎯 Mission**")
     mode = st.radio(
-        "Mode",
+        "Choose mode",
         [
             "🤖 AI Chat",
-            "📚 File Vault",
-            "📷 Photo Scanner",
-            "🌐 Web Radar",
+            "📚 Study Files",
+            "📷 Photo AI",
+            "🌐 Web Search",
         ],
-        label_visibility="collapsed",
     )
 
     st.divider()
 
-    # ---- HUD stats ----
-    ready_count = len([
-        f for f in st.session_state.processed_files.values()
-        if f.get("status") == "ready"
-    ])
-    st.caption(f"💍 Rings: **{st.session_state.rings}**")
-    st.caption(f"📚 Files: **{ready_count}**")
-    st.caption(f"💬 Msgs: **{len(st.session_state.messages)}**")
-    st.caption(f"🔢 Tokens ~**{st.session_state.tokens}**")
+    if st.button(
+        "🗑️ Clear Chat",
+        use_container_width=True,
+    ):
+
+        st.session_state.messages = []
+
+        st.session_state.chat_interaction_id = None
+
+        st.session_state.file_interaction_id = None
+
+        st.session_state.photo_interaction_id = None
+
+        st.session_state.web_interaction_id = None
+
+        st.rerun()
 
     st.divider()
 
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("🗑️ Reset", use_container_width=True):
-            for k in ["messages", "chat_interaction_id",
-                      "file_interaction_id", "photo_interaction_id",
-                      "web_interaction_id"]:
-                st.session_state[k] = [] if k == "messages" else None
-            st.session_state.rings = 0
-            st.session_state.tokens = 0
-            st.rerun()
-    with c2:
-        if st.session_state.messages:
-            st.download_button(
-                "💾 Save",
-                data=export_messages_markdown(),
-                file_name=f"sonic_{datetime.now():%Y%m%d_%H%M}.md",
-                mime="text/markdown",
-                use_container_width=True,
-            )
+    st.caption(
+        "Fast AI workspace"
+    )
+
+    st.caption(
+        "Kannada + English supported"
+    )
 
 
 # ============================================================
-# HUD BAR
-# ============================================================
-
-st.markdown(
-    f"""
-<div class="hud">
-  <div class="hud-card">
-    <div class="hud-label">Rings</div>
-    <div class="hud-value">💍 {st.session_state.rings}</div>
-  </div>
-  <div class="hud-card">
-    <div class="hud-label">Files</div>
-    <div class="hud-value">📚 {ready_count}</div>
-  </div>
-  <div class="hud-card">
-    <div class="hud-label">Messages</div>
-    <div class="hud-value">💬 {len(st.session_state.messages)}</div>
-  </div>
-  <div class="hud-card">
-    <div class="hud-label">Tokens</div>
-    <div class="hud-value">🔢 {st.session_state.tokens}</div>
-  </div>
-  <div class="hud-card">
-    <div class="hud-label">Zone</div>
-    <div class="hud-value">{st.session_state.theme.split()[0]}</div>
-  </div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# MODE: AI CHAT
+# AI CHAT
 # ============================================================
 
 if mode == "🤖 AI Chat":
-    st.subheader("🤖 AI Chat")
-    st.caption("Ask anything. Attach images for vision.")
 
-    # quick prompts
-    with st.expander("⚡ Quick actions", expanded=False):
-        qp = st.columns(4)
-        presets = [
-            "Explain this in simple terms",
-            "Summarize the key points",
-            "Translate to Kannada",
-            "Give me 5 examples",
-        ]
-        for i, p in enumerate(presets):
-            with qp[i]:
-                if st.button(p, key=f"qp_{i}", use_container_width=True):
-                    st.session_state["_preset"] = p
+    st.subheader(
+        "🤖 AI Chat"
+    )
 
-    # history
-    for m in st.session_state.messages:
-        with st.chat_message(m["role"]):
-            st.markdown(m["content"])
-            if m.get("attachments"):
-                pills = " ".join(
-               
+    st.caption(
+        "Ask anything in Kannada or English."
+    )
+
+    for message in st.session_state.messages:
+
+        with st.chat_message(
+            message["role"]
+        ):
+
+            st.markdown(
+                message["content"]
+            )
+
+    question = st.chat_input(
+        "Ask Ultra Sonic..."
+    )
+
+    if question:
+
+        st.session_state.messages.append(
+            {
+                "role": "user",
+                "content": question,
+            }
+        )
+
+        with st.chat_message("user"):
+
+            st.markdown(question)
+
+        with st.chat_message(
+            "assistant"
+        ):
+
+            with st.spinner(
+                "⚡ Thinking..."
+            ):
+
+                try:
+
+                    answer = ask_chat(
+                        question
+                    )
+
+                    st.markdown(
+                        answer
+                    )
+
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": answer,
+                        }
+                    )
+
+                except Exception as error:
+
+                    st.error(
+                        format_error(error)
+                    )
+
+
+# ============================================================
+# STUDY FILES
+# ============================================================
+
+elif mode == "📚 Study Files":
+
+    st.subheader(
+        "📚 Study Files"
+    )
+
+    st.caption(
+        "Upload your study material and ask questions from it."
+    )
+
+    # --------------------------------------------------------
+    # UPLOAD
+    # --------------------------------------------------------
+
+    uploaded_files = st.file_uploader(
+        "📁 Upload your files",
+        type=SUPPORTED_FILES,
+        accept_multiple_files=True,
+        help=(
+            "PDF, DOCX, PPTX, TXT, MD, CSV, JSON, "
+            "PNG, JPG, JPEG and WEBP."
+        ),
+    )
+
+    if uploaded_files:
+
+        new_files = []
+
+        for uploaded_file in uploaded_files:
+
+            file_id = file_hash(
+                uploaded_file
+            )
+
+            if (
+                file_id
+                not in st.session_state.processed_files
+            ):
+
+                new_files.append(
+                    uploaded_file
+                )
+
+        # ----------------------------------------------------
+        # AUTOMATIC PROCESSING
+        # ----------------------------------------------------
+
+        if new_files:
+
+            st.info(
+                f"⚡ Processing {len(new_files)} "
+                f"new file(s)..."
+            )
+
+            progress = st.progress(0)
+
+            for index, uploaded_file in enumerate(
+                new_files
+            ):
+
+                filename = safe_filename(
+                    uploaded_file.name
+                )
+
+                st.write(
+                    f"📄 **{filename}**"
+                )
+
+                try:
+
+                    with st.spinner(
+                        f"Indexing {filename}..."
+                    ):
+
+                        process_file(
+                            uploaded_file
+                        )
+
+                    file_id = file_hash(
+                        uploaded_file
+                    )
+
+                    st.session_state.processed_files[
+                        file_id
+                    ] = {
+                        "name": filename,
+                        "size": uploaded_file.size,
+                        "status": "ready",
+                    }
+
+                    st.success(
+                        f"✅ {filename} ready"
+                    )
+
+                except Exception as error:
+
+                    file_id = file_hash(
+                        uploaded_file
+                    )
+
+                    st.session_state.processed_files[
+                        file_id
+                    ] = {
+                        "name": filename,
+                        "size": uploaded_file.size,
+                        "status": "error",
+                        "error": str(error),
+                    }
+
+                    st.error(
+                        f"❌ {filename}: {error}"
+                    )
+
+                progress.progress(
+                    (index + 1)
+                    / len(new_files)
+                )
+
+     # --------------------------------------------------------
+    # FILE STATUS
+    # --------------------------------------------------------
+
+    ready_files = [
+        data
+        for data in
+        st.session_state.processed_files.values()
+        if data.get("status") == "ready"
+    ]
+
+    error_files = [
+        data
+        for data in
+        st.session_state.processed_files.values()
+        if data.get("status") == "error"
+    ]
+
+    if ready_files:
+
+        st.divider()
+
+        st.success(
+            f"✅ {len(ready_files)} file(s) ready for questions."
+        )
+
+        for file_data in ready_files:
+
+            col1, col2 = st.columns(
+                [5, 1]
+            )
+
+            with col1:
+
+                st.markdown(
+                    f"📄 **{file_data['name']}**"
+                )
+
+            with col2:
+
+                st.caption("READY")
+
+    if error_files:
+
+        st.warning(
+            f"{len(error_files)} file(s) failed."
+        )
+
+    # --------------------------------------------------------
+    # CLEAR ALL FILES
+    # --------------------------------------------------------
+
+    if ready_files:
+
+        st.divider()
+
+        if st.button(
+            "🗑️ Clear all study files",
+            use_container_width=True,
+        ):
+
+            delete_all_files()
+
+            st.success(
+                "All study files cleared."
+            )
+
+            st.rerun()
+
+    # --------------------------------------------------------
+    # QUESTIONS
+    # --------------------------------------------------------
+
+    if ready_files:
+
+        st.divider()
+
+        st.markdown(
+            "### 💬 Ask your files"
+        )
+
+        st.caption(
+            "Ultra Sonic will search your uploaded documents "
+            "before answering."
+        )
+
+        question = st.chat_input(
+            "Ask anything about your files..."
+        )
+
+        if question:
+
+            with st.chat_message(
+                "user"
+            ):
+
+                st.markdown(
+                    question
+                )
+
+            with st.chat_message(
+                "assistant"
+            ):
+
+                with st.spinner(
+                    "📚 Searching your files..."
+                ):
+
+                    try:
+
+                        answer, interaction = (
+                            ask_file(
+                                question
+                            )
+                        )
+
+                        st.markdown(
+                            answer
+                        )
+
+                        citations = (
+                            get_file_citations(
+                                interaction
+                            )
+                        )
+
+                        if citations:
+
+                            st.caption(
+                                "📌 File references"
+                            )
+
+                            shown = set()
+
+                            for citation in citations:
+
+                                key = (
+                                    citation.get(
+                                        "title"
+                                    ),
+                                    citation.get(
+                                        "page"
+                                    ),
+                                )
+
+                                if key in shown:
+
+                                    continue
+
+                                shown.add(key)
+
+                                page = citation.get(
+                                    "page"
+                                )
+
+                                title = citation.get(
+                                    "title"
+                                )
+
+                                if page:
+
+                                    st.caption(
+                                        f"📄 {title or 'Document'} "
+                                        f"— Page {page}"
+                                    )
+
+                                else:
+
+                                    st.caption(
+                                        f"📄 {title or 'Document'}"
+                                    )
+
+                    except Exception as error:
+
+                        st.error(
+                            format_error(error)
+                        )
+
+    else:
+
+        st.markdown(
+            """
+            <div class="card">
+
+            ### 📁 Start studying
+
+            Upload one or more PDFs or documents above.
+
+            Once processing finishes:
+
+            **Upload → Process → Ready → Ask questions**
+
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# ============================================================
+# PHOTO AI
+# ============================================================
+
+elif mode == "📷 Photo AI":
+
+    st.subheader(
+        "📷 Photo AI"
+    )
+
+    st.caption(
+        "Upload an image and ask Gemini to understand it."
+    )
+
+    photo = st.file_uploader(
+        "🖼️ Choose an image",
+        type=[
+            "png",
+            "jpg",
+            "jpeg",
+            "webp",
+        ],
+        key="photo_upload",
+    )
+
+    if photo:
+
+        st.image(
+            photo,
+            caption=photo.name,
+            use_container_width=True,
+        )
+
+        question = st.text_area(
+            "What do you want to know?",
+            value=(
+                "Analyze this image carefully. "
+                "Explain the important details."
+            ),
+            height=120,
+        )
+
+        if st.button(
+            "🔍 Analyze",
+            type="primary",
+            use_container_width=True,
+        ):
+
+            with st.spinner(
+                "📷 Analyzing..."
+            ):
+
+                try:
+
+                    answer = analyze_photo(
+                        photo.getvalue(),
+                        photo.type,
+                        question,
+                    )
+
+                    st.markdown(
+                        "### 🧠 Analysis"
+                    )
+
+                    st.markdown(
+                        answer
+                    )
+
+                except Exception as error:
+
+                    st.error(
+                        format_error(error)
+                    )
+
+
+# ============================================================
+# WEB SEARCH
+# ============================================================
+
+elif mode == "🌐 Web Search":
+
+    st.subheader(
+        "🌐 Google Search"
+    )
+
+    st.caption(
+        "Use this mode for current information from the web."
+    )
+
+    question = st.chat_input(
+        "What do you want to search?"
+    )
+
+    if question:
+
+        with st.chat_message(
+            "user"
+        ):
+
+            st.markdown(
+                question
+            )
+
+        with st.chat_message(
+            "assistant"
+        ):
+
+            with st.spinner(
+                "🌐 Searching the web..."
+            ):
+
+                try:
+
+                    answer, interaction = (
+                        ask_web(
+                            question
+                        )
+                    )
+
+                    st.markdown(
+                        answer
+                    )
+
+                except Exception as error:
+
+                    st.error(
+                        format_error(error)
+                    )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "⚡ Ultra Sonic Super • "
+    "Gemini 3.8 Flash • "
+    "File Search • Photo AI • Google Search"
+)
